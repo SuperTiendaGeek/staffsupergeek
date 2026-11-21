@@ -110,6 +110,27 @@ export interface CuentaUnificadaAbono {
   // calcularFormasPago()). null si el abono no lo trae — hoy es opcional
   // salvo para Transferencia/DeUna (ver types/abonos.ts).
   numeroTransaccion: string | null;
+  // Auditoría ops, punto 11 (21-nov-2026): lo que la tarjeta "Cuenta" muestra
+  // de cada pago. Opcionales para no romper a quien arma abonos a mano.
+  registradoPor?: string | null;
+  /** Fotos o PDF del comprobante (campo "Comprobante"). */
+  comprobantes?: CuentaUnificadaComprobante[];
+  /** Entró por la pasarela (PayPhone o enlazado a "Pagos en línea"): no se anula aquí. */
+  enLinea?: boolean;
+  /** Constancia de la anulación (campos de Abonos creados el 21-nov-2026). */
+  motivoAnulacion?: string | null;
+  anuladoPor?: string | null;
+  fechaAnulacion?: string | null;
+}
+
+/** Un adjunto del comprobante de un pago (misma forma que los adjuntos de Airtable). */
+export interface CuentaUnificadaComprobante {
+  id: string | null;
+  url: string;
+  filename: string | null;
+  contentType: string | null;
+  size: number | null;
+  thumbnailUrl: string | null;
 }
 
 // Línea del presupuesto que el cliente APROBÓ y todavía no tiene su artículo

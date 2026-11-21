@@ -3,7 +3,9 @@ import {
   fetchServiciosPorOrden,
   fetchAbonosPorOrden,
   fetchProductosDigitalesPorOrden,
+  parseAttachments,
 } from "@/lib/tecnicos/airtable";
+import { esPagoEnLinea } from "@/lib/cobros/anular";
 import { resolveModoRepuestos } from "./config";
 import type {
   CuentaUnificada,
@@ -179,6 +181,16 @@ function mapAbonoRecordToCuentaAbono(
     observacion: typeof f["Observación"] === "string" ? (f["Observación"] as string) : null,
     // Nombre exacto del campo, con tilde — Airtable falla en silencio si difiere.
     numeroTransaccion: typeof f["Número de Transacción"] === "string" ? (f["Número de Transacción"] as string) : null,
+    // Punto 11: lo que muestra la tarjeta "Cuenta".
+    registradoPor: typeof f["Registrado Por"] === "string" ? (f["Registrado Por"] as string) : null,
+    comprobantes: parseAttachments(f["Comprobante"]),
+    enLinea: esPagoEnLinea({
+      metodoPago: typeof f["Método de Pago"] === "string" ? (f["Método de Pago"] as string) : null,
+      conPagoEnLinea: linkedIds(f["Pagos en línea"]).length > 0,
+    }),
+    motivoAnulacion: typeof f["Motivo de anulación"] === "string" ? (f["Motivo de anulación"] as string) : null,
+    anuladoPor: typeof f["Anulado por"] === "string" ? (f["Anulado por"] as string) : null,
+    fechaAnulacion: typeof f["Fecha de anulación"] === "string" ? (f["Fecha de anulación"] as string) : null,
   };
 }
 
@@ -469,6 +481,12 @@ export async function getCuentaUnificada(
       origen: "orden",
       observacion: a.observacion,
       numeroTransaccion: a.numeroTransaccion,
+      registradoPor: a.registradoPor,
+      comprobantes: a.comprobantes,
+      enLinea: a.enLinea,
+      motivoAnulacion: a.motivoAnulacion,
+      anuladoPor: a.anuladoPor,
+      fechaAnulacion: a.fechaAnulacion,
     });
   }
   for (const a of abonosOperacion) {

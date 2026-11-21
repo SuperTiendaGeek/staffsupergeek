@@ -1,7 +1,6 @@
 "use client";
 
 import { ElegirPagoDeUna } from "@/components/pagos-en-linea/ElegirPagoDeUna";
-import { ETIQUETA_ESTADO_PAGO } from "@/lib/estado-cuenta/reglas";
 import { isAdministratorRole } from "@/lib/apps";
 import Link from "next/link";
 import Image from "next/image";
@@ -16,8 +15,8 @@ import { StatusFilterDropdown } from "@/components/tecnicos/ui/StatusFilterDropd
 import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
 import { buildAbandonmentWhatsAppMessage } from "@/lib/tecnicos/orders/abandonmentWhatsApp";
 import { buildWhatsAppUrl } from "@/lib/tecnicos/whatsapp";
-import { CuentaUnificadaPanel } from "@/components/cuenta-unificada/CuentaUnificadaPanel";
-import type { OrdenCobro } from "@/lib/tecnicos/cobros/reglas";
+import { CuentaCard } from "@/components/cuenta/CuentaCard";
+import type { DocumentoCuenta } from "@/lib/estado-cuenta/tarjeta";
 import { PresupuestoCard } from "@/components/tecnicos/ordenes/PresupuestoCard";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
 import { METODOS_COBRO_NUEVO, esMetodoCobroNuevoValido, etiquetaMetodoPago, requiereNumeroTransaccion } from "@/types/abonos";
@@ -154,14 +153,6 @@ const formatDate = (value?: string | null) => {
   });
 };
 
-const formatCurrency = (value: number | null) => {
-  if (value === null || value === undefined) return "No disponible";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(value);
-};
 
 const parseNumberInput = (value: string): number | null => {
   const normalized = value.trim().replace(",", ".");
@@ -532,36 +523,7 @@ const TrashIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
   </svg>
 );
 
-const PaperclipIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    <path d="M21.44 11.05 12.25 20.24a5 5 0 1 1-7.07-7.07l9.2-9.19a3.5 3.5 0 0 1 4.95 4.95l-9.2 9.19a2 2 0 1 1-2.82-2.82l8.49-8.49" />
-  </svg>
-);
 
-const FileIcon = ({ className = "h-4 w-4" }: { className?: string }) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.6"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-    <path d="M14 2v6h6" />
-    <path d="M9 15h6" />
-    <path d="M9 19h6" />
-  </svg>
-);
 
 // ─── Inline edit field ────────────────────────────────────────────────────────
 
@@ -697,19 +659,11 @@ export function OrdenDetalleClient() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   // Cuenta unificada de repuestos (Fase 11 — Etapa 2).
   const [cuentaUnificada, setCuentaUnificada] = useState<CuentaUnificada | null>(null);
-  // Cifras de la cuenta: "—" mientras carga (nunca el rollup NV de Airtable).
-  const enCuenta = (v: number | undefined) => (cuentaUnificada ? formatCurrency(v ?? 0) : "—");
+  // Punto 11: el documento vigente de la cuenta (lo trae la misma ruta de la cuenta).
+  const [cuentaDocumento, setCuentaDocumento] = useState<DocumentoCuenta | null>(null);
   const [cuentaUnificadaLoading, setCuentaUnificadaLoading] = useState(false);
   const [cuentaUnificadaError, setCuentaUnificadaError] = useState<string | null>(null);
-  // Estado de cobro/documento con la MISMA regla del panel de /tecnicos/ordenes
-  // (lib/tecnicos/cobros/reglas.ts): saldo = cargos − abonos, una sola cifra.
-  const [cobro, setCobro] = useState<OrdenCobro | null>(null);
-  const [showRepuestosHistoricos, setShowRepuestosHistoricos] = useState(false);
   const [showMantenimientoModal, setShowMantenimientoModal] = useState(false);
-  const [abonoDeleteConfirmId, setAbonoDeleteConfirmId] = useState<string | null>(null);
-  const [abonoDeletingId, setAbonoDeletingId] = useState<string | null>(null);
-  const [abonoDeleteError, setAbonoDeleteError] = useState<string | null>(null);
-  const [abonoAdjuntoUploadingId, setAbonoAdjuntoUploadingId] = useState<string | null>(null);
   const [abonoAdjuntoDeletingKey, setAbonoAdjuntoDeletingKey] = useState<string | null>(null);
   const [abonoAdjuntoError, setAbonoAdjuntoError] = useState<Record<string, string | null>>({});
   const [comprobanteViewer, setComprobanteViewer] = useState<{
@@ -735,8 +689,6 @@ export function OrdenDetalleClient() {
   const [bajaError, setBajaError] = useState<string | null>(null);
   const [userRol, setUserRol] = useState("");
   const [userNombre, setUserNombre] = useState("");
-  const lineDeleteActionButtonClass =
-    "inline-flex h-8 w-8 items-center justify-center rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)] hover:text-[var(--sg-danger)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)] disabled:cursor-not-allowed disabled:opacity-50";
 
   const abandonmentStatus = useMemo(
     () => (orden ? getAbandonmentStatus(orden) : getAbandonmentStatus({})),
@@ -819,16 +771,12 @@ export function OrdenDetalleClient() {
         throw new Error(json.error || "No se pudo cargar la cuenta unificada");
       }
       setCuentaUnificada(json.data as CuentaUnificada);
+      setCuentaDocumento((json.documento as DocumentoCuenta | null | undefined) ?? null);
     } catch (err) {
       setCuentaUnificadaError(err instanceof Error ? err.message : "Error desconocido");
     } finally {
       setCuentaUnificadaLoading(false);
     }
-    // Aparte y sin bloquear: si falla, la tarjeta sigue como antes.
-    fetch(`/api/tecnicos/ordenes/cobros?orden=${encodeURIComponent(id)}`)
-      .then((r) => r.json())
-      .then((j) => setCobro(j?.success ? ((j.data?.ordenes?.[0] as OrdenCobro | undefined) ?? null) : null))
-      .catch(() => setCobro(null));
   };
 
   // Auditoría ops, punto 13B: saldo a favor del cliente, para ofrecerlo como
@@ -935,31 +883,6 @@ export function OrdenDetalleClient() {
     }
   };
 
-  const handleAnularAbonoConfirm = async (abonoId: string) => {
-    setAbonoDeleteError(null);
-    setAbonoDeletingId(abonoId);
-    try {
-      const res = await fetch(`/api/tecnicos/abonos-por-orden/${encodeURIComponent(abonoId)}`, {
-        method: "DELETE",
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo anular el abono");
-      }
-
-      setAbonoDeleteConfirmId(null);
-      if (comprobanteViewer?.abonoId === abonoId) {
-        closeComprobanteViewer();
-      }
-      await refreshOrdenDetalleFinanzas();
-      setAbonoMessage("Abono anulado correctamente.");
-    } catch (err) {
-      setAbonoDeleteError(err instanceof Error ? err.message : "Error desconocido");
-    } finally {
-      setAbonoDeletingId(null);
-    }
-  };
-
   const replaceAbonoInState = (updatedAbono: AbonoItem) => {
     setOrden((prev) =>
       prev
@@ -1028,41 +951,6 @@ export function OrdenDetalleClient() {
     }
   };
 
-  const handleAgregarComprobanteAbono = async (abonoId: string, file: File | null) => {
-    if (!file || abonoAdjuntoUploadingId) return;
-    setAbonoAdjuntoError((prev) => ({ ...prev, [abonoId]: null }));
-    setAbonoAdjuntoUploadingId(abonoId);
-
-    try {
-      const formData = new FormData();
-      formData.set("comprobanteArchivo", file);
-
-      const res = await fetch(`/api/tecnicos/abonos-por-orden/${encodeURIComponent(abonoId)}/comprobantes`, {
-        method: "POST",
-        body: formData,
-      });
-      const payload = await parseApiResponseSafely(res);
-
-      if (!res.ok || !payload?.success) {
-        throw new Error(payload?.error?.trim() || "No se pudo agregar el comprobante");
-      }
-
-      replaceAbonoInState(payload.data as AbonoItem);
-      setAbonoMessage(
-        typeof payload.warning === "string" && payload.warning.trim()
-          ? `Comprobante agregado. ${payload.warning}`
-          : "Comprobante agregado correctamente."
-      );
-    } catch (err) {
-      setAbonoAdjuntoError((prev) => ({
-        ...prev,
-        [abonoId]: err instanceof Error ? err.message : "Error desconocido",
-      }));
-    } finally {
-      setAbonoAdjuntoUploadingId(null);
-    }
-  };
-
   const handleEliminarComprobanteAbono = async (abonoId: string, attachment: AbonoAdjuntoItem) => {
     if (!attachment.id) {
       setAbonoAdjuntoError((prev) => ({
@@ -1089,6 +977,7 @@ export function OrdenDetalleClient() {
       }
 
       replaceAbonoInState(payload.data as AbonoItem);
+      void loadCuentaUnificada();
       setAbonoMessage("Comprobante eliminado correctamente.");
       if (comprobanteViewer?.attachment.id === attachment.id) {
         closeComprobanteViewer();
@@ -2202,23 +2091,18 @@ export function OrdenDetalleClient() {
               />
             </div>
 
-            <section id="orden-cuenta" className="order-1 scroll-mt-4 rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
-              <p className="mb-3 flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
-                <span>Resumen financiero</span>
-                {cuentaUnificadaLoading && <span className="normal-case tracking-normal font-normal">Actualizando…</span>}
-              </p>
-
-              {/* Antes el error de la cuenta se veía en la tarjeta Repuestos (fase 4
-                  la quitó). Sin la cuenta, los totales de abajo caen al rollup de
-                  la orden, que NO incluye lo aprobado sin artículo: hay que avisarlo. */}
+            {/* Tarjeta "Cuenta" (auditoría ops, punto 11): una sola, como estado de
+                cuenta. Reemplaza el "Resumen financiero" (saldo repetido, cuadrícula,
+                cuenta unificada, repuestos históricos y una segunda lista de abonos). */}
+            <section id="orden-cuenta" className="order-1 flex scroll-mt-4 flex-col gap-2">
+              {/* Sin la cuenta no hay cifras: se avisa (no se cae a los rollups NV). */}
               {cuentaUnificadaError && (
-                <p className="mb-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/40 bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-danger)]">
-                  No se pudo cargar la cuenta ({cuentaUnificadaError}). Los totales pueden estar incompletos; recarga la página.
+                <p className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)]/40 bg-[var(--sg-danger-soft)] px-3 py-2 text-xs text-[var(--sg-danger)]">
+                  No se pudo cargar la cuenta ({cuentaUnificadaError}). Recarga la página.
                 </p>
               )}
-
               {abonoMessage && (
-                <div className="mb-3 flex items-center gap-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-success)] bg-[var(--sg-success-soft)] px-3 py-2 text-sm text-[var(--sg-text-primary)]">
+                <div className="flex items-center gap-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-success)] bg-[var(--sg-success-soft)] px-3 py-2 text-sm text-[var(--sg-text-primary)]">
                   <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--sg-success)] text-[var(--sg-text-on-accent)]">
                     <svg aria-hidden="true" viewBox="0 0 20 20" className="h-3 w-3 fill-current">
                       <path d="M8.35 13.2 4.9 9.75l1.06-1.06 2.39 2.39 5.69-5.69 1.06 1.06-6.75 6.75Z" />
@@ -2227,426 +2111,25 @@ export function OrdenDetalleClient() {
                   <span>{abonoMessage}</span>
                 </div>
               )}
-
-              {/* Saldo hero — sale de la cuenta unificada (una sola fuente).
-                  Mientras carga muestra "—": los campos NV de Airtable ya no
-                  se usan ni de relleno (auditoría ops, punto 4: daban otra
-                  cifra y se veía un salto al terminar de cargar). */}
-              {cobro?.documento && cobro.estadoCobro === "documentada" ? (
-                // Documento emitido Y abonos que cubren el total (auditoría
-                // ops, punto 1: una sola regla, saldo = cargos − abonos; el
-                // documento ya no "salda" nada por sí solo).
-                <div className="mb-3 rounded-xl border border-[var(--sg-success)]/40 bg-[var(--sg-success-soft)] px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-success)]">
-                    Cobrada y documentada
-                  </p>
-                  <p className="mt-1 text-[1.75rem] font-black leading-none tabular-nums text-[var(--sg-success)]">
-                    {formatCurrency(0)}
-                  </p>
-                  <p className="mt-1.5 text-xs text-[var(--sg-text-secondary)]">
-                    {cobro.documento.tipo === "factura" ? "Factura" : "Recibo"}{" "}
-                    <span className="font-semibold text-[var(--sg-text-primary)]">{cobro.documento.numero || "—"}</span>
-                    {" · "}{cobro.documento.estado}
-                  </p>
-                </div>
-              ) : (
-                <div className="mb-3 rounded-xl border border-[var(--sg-lime)]/20 bg-[var(--sg-lime)]/5 px-3 py-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]/60">
-                    {!cuentaUnificada
-                      ? "Saldo pendiente"
-                      : cuentaUnificada.estadoPago === "saldo_a_favor"
-                      ? "Saldo a favor del cliente"
-                      : cuentaUnificada.estadoPago === "pagado"
-                      ? "Pagado"
-                      : `Saldo pendiente · ${ETIQUETA_ESTADO_PAGO[cuentaUnificada.estadoPago]}`}
-                  </p>
-                  <p className="mt-1 text-[1.75rem] font-black leading-none tabular-nums text-[var(--sg-lime)]">
-                    {cuentaUnificada ? formatCurrency(Math.abs(cuentaUnificada.saldo)) : "—"}
-                  </p>
-                  {cobro?.documento ? (
-                    <p className="mt-1.5 text-xs text-[var(--sg-danger)]">
-                      {cobro.documento.tipo === "factura" ? "Factura" : "Recibo"} {cobro.documento.numero || "—"} emitido, pero los abonos no cubren el total. Revisar.
-                    </p>
-                  ) : cobro?.conCargos && (
-                    <p className="mt-1.5 text-xs text-[var(--sg-warning)]">
-                      {cobro.documentoNoEmitido
-                        ? `Factura en ${cobro.documentoNoEmitido.estado.toLowerCase()} — aún sin documento emitido`
-                        : "Sin documento emitido"}
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Breakdown grid */}
-              <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-divider)]">
-                <div className="bg-[var(--sg-card)] px-3 py-2.5">
-                  <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Total a pagar</p>
-                  <p className="mt-0.5 text-sm font-extrabold leading-none tabular-nums text-[var(--sg-lime)]">
-                    {enCuenta(cuentaUnificada?.totalCuenta)}
-                  </p>
-                </div>
-                <div className="bg-[var(--sg-card)] px-3 py-2.5">
-                  <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Total abonado</p>
-                  <p className="mt-0.5 text-sm font-extrabold leading-none tabular-nums text-[var(--sg-lime)]">
-                    {enCuenta(cuentaUnificada?.totalAbonado)}
-                  </p>
-                </div>
-                <div className="bg-[var(--sg-panel)] px-3 py-2">
-                  <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Repuestos</p>
-                  <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
-                    {enCuenta(cuentaUnificada?.totalRepuestos)}
-                  </p>
-                </div>
-                <div className="bg-[var(--sg-panel)] px-3 py-2">
-                  <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Servicios</p>
-                  <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
-                    {enCuenta(cuentaUnificada?.totalServicios)}
-                  </p>
-                </div>
-                {(cuentaUnificada?.totalAprobadoSinArticulo ?? 0) > 0 && (
-                  <div className="col-span-2 bg-[var(--sg-panel)] px-3 py-2" title="Aprobado por el cliente: ya suma. La factura o el recibo esperan a que exista el artículo.">
-                    <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-warning)]">Aprobado sin artículo · no facturable aún</p>
-                    <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
-                      {formatCurrency(cuentaUnificada?.totalAprobadoSinArticulo ?? 0)}
-                    </p>
-                  </div>
-                )}
-                {(cuentaUnificada?.totalDescuentos ?? 0) > 0 && (
-                  <div className="col-span-2 bg-[var(--sg-panel)] px-3 py-2">
-                    <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-warning)]">Descuentos</p>
-                    <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
-                      −{enCuenta(cuentaUnificada?.totalDescuentos)}
-                    </p>
-                  </div>
-                )}
-                {(cuentaUnificada?.totalProductosDigitales ?? 0) > 0 && (
-                  <div className="col-span-2 bg-[var(--sg-panel)] px-3 py-2">
-                    <p className="text-[0.68rem] font-medium uppercase leading-snug tracking-wide text-[var(--sg-text-muted)]">Productos Digitales</p>
-                    <p className="mt-0.5 text-xs font-bold leading-none tabular-nums text-[var(--sg-text-secondary)]">
-                      {enCuenta(cuentaUnificada?.totalProductosDigitales)}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-4">
-                <CuentaUnificadaPanel
-                  cuenta={
-                    cuentaUnificada ?? {
-                      ordenId: orden.recordId,
-                      ordenIdVisible: orden.idVisible,
-                      operacionId: null,
-                      operacionCodigo: null,
-                      modoRepuestos: null,
-                      items: [],
-                      servicios: [],
-                      repuestosHistoricos: [],
-                      repuestosHistoricosCuentanParaTotal: false,
-                      productosDigitales: [],
-                      abonos: [],
-                      totalRepuestos: 0,
-                      totalServicios: 0,
-                      totalProductosDigitales: 0,
-                      aprobadoSinArticulo: [],
-                      totalAprobadoSinArticulo: 0,
-                      totalCuenta: 0,
-                      totalAbonado: 0,
-                      saldo: 0,
-                      estadoPago: "sin_cargos",
-                      descuentos: [],
-                      totalDescuentos: 0,
-                    }
-                  }
-                  origenTipo="orden"
-                  puedeDescontar={isAdministratorRole(userRol)}
-                  onCuentaCambiada={() => void refreshOrdenDetalleFinanzas()}
-                  onRegistrarPago={() => {
-                    setAbonoError(null);
-                    setAbonoMessage(null);
-                    // Abre el cobro con el saldo ya puesto (se puede cambiar
-                    // para pagos en varias partes).
-                    const saldo = cuentaUnificada?.saldo ?? 0;
-                    if (saldo > 0) setAbonoMonto(saldo.toFixed(2));
-                    cargarSaldoAFavorCliente();
-                    setOpenAbonoModal(true);
-                  }}
-                />
-              </div>
-
-              {/* Repuestos del sistema anterior (no se mudaron al presupuesto). Antes
-                  vivían en la tarjeta Repuestos, que ya no existe (fase 4). */}
-              {(cuentaUnificada?.repuestosHistoricos.length ?? 0) > 0 && (
-                <div className="mt-3 rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)]">
-                  <button
-                    type="button"
-                    onClick={() => setShowRepuestosHistoricos((prev) => !prev)}
-                    className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-[var(--sg-text-secondary)]"
-                  >
-                    <span>Repuestos históricos (sistema anterior)</span>
-                    <span className="text-[var(--sg-text-muted)]">{showRepuestosHistoricos ? "▲" : "▼"}</span>
-                  </button>
-                  {showRepuestosHistoricos && (
-                    <div className="space-y-2 border-t border-dashed border-[var(--sg-border)] px-3 py-3">
-                      <p
-                        className={`text-[11px] font-semibold uppercase tracking-wide ${
-                          cuentaUnificada?.repuestosHistoricosCuentanParaTotal
-                            ? "text-[var(--sg-lime)]"
-                            : "text-[var(--sg-text-muted)]"
-                        }`}
-                      >
-                        {cuentaUnificada?.repuestosHistoricosCuentanParaTotal
-                          ? "Incluidos en el total de la orden"
-                          : "Solo referencia histórica — no suman"}
-                      </p>
-                      {(cuentaUnificada?.repuestosHistoricos ?? []).map((r) => (
-                        <div
-                          key={r.id}
-                          className="flex items-center justify-between gap-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-xs"
-                        >
-                          <div>
-                            <p className="font-medium text-[var(--sg-text-primary)]">{r.nombre}</p>
-                            <p className="text-[var(--sg-text-muted)]">
-                              Cantidad {r.cantidad ?? 1} · Precio cliente {formatCurrency(r.precioCliente)}
-                            </p>
-                          </div>
-                          <p className="font-semibold text-[var(--sg-text-primary)]">{formatCurrency(r.subtotal)}</p>
-                        </div>
-                      ))}
-                      <div className="flex items-center justify-between border-t border-dashed border-[var(--sg-border)] pt-2 text-xs font-semibold text-[var(--sg-text-primary)]">
-                        <span>Subtotal histórico</span>
-                        <span>
-                          {formatCurrency(
-                            (cuentaUnificada?.repuestosHistoricos ?? []).reduce((acc, r) => acc + r.subtotal, 0)
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="mt-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Abonos</p>
-                    <span className="rounded-full bg-[var(--sg-panel)] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--sg-text-secondary)]">
-                      {(orden.abonosPorOrden ?? []).length}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setAbonoError(null);
-                      setAbonoMessage(null);
-                      setOpenAbonoModal(true);
-                    }}
-                    className="inline-flex items-center gap-1 rounded-full border border-[var(--sg-lime)]/40 px-2.5 py-0.5 text-[11px] font-semibold text-[var(--sg-lime)] transition hover:border-[var(--sg-lime)] hover:bg-[var(--sg-lime-soft)]"
-                  >
-                    <span aria-hidden>+</span> Registrar
-                  </button>
-                </div>
-
-                {(orden.abonosPorOrden ?? []).length === 0 ? (
-                  <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3 text-sm text-[var(--sg-text-secondary)]">
-                    Sin abonos registrados.
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {(orden.abonosPorOrden ?? []).map((abono) => {
-                      const isConfirming = abonoDeleteConfirmId === abono.id;
-                      const isDeleting = abonoDeletingId === abono.id;
-                      const attachments =
-                        (abono.comprobantes ?? []).length > 0
-                          ? abono.comprobantes
-                          : abono.comprobante
-                          ? [
-                              {
-                                id: null,
-                                url: abono.comprobante,
-                                filename: null,
-                                contentType: null,
-                                size: null,
-                                thumbnailUrl: null,
-                              },
-                            ]
-                          : [];
-                      const hasAttachments = attachments.length > 0;
-                      const isAdjuntoUploading = abonoAdjuntoUploadingId === abono.id;
-                      const attachmentError = abonoAdjuntoError[abono.id];
-                      const isAnulado = abono.estado === "Anulado";
-                      return (
-                        <div
-                          key={abono.id}
-                          className={`rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3 ${
-                            isAnulado ? "opacity-60" : ""
-                          }`}
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0 space-y-1.5">
-                              <p className="flex items-center gap-2 text-sm font-semibold text-[var(--sg-text-primary)]">
-                                {abono.idAbono ? `Abono ${abono.idAbono}` : "Abono registrado"}
-                                {isAnulado && (
-                                  <span className="rounded-full border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--sg-danger)]">
-                                    Anulado
-                                  </span>
-                                )}
-                              </p>
-                              <p className="text-xs text-[var(--sg-text-secondary)]">Fecha: {formatDate(abono.fecha)}</p>
-                              <p className="text-xs text-[var(--sg-text-secondary)]">
-                                Metodo de pago: {abono.metodoPago || "No disponible"}
-                              </p>
-                              {abono.numeroTransaccion && (
-                                <p className="text-xs text-[var(--sg-text-secondary)]">
-                                  N° transacción: {abono.numeroTransaccion}
-                                </p>
-                              )}
-                              {abono.registradoPor && (
-                                <p className="text-xs text-[var(--sg-text-muted)]">
-                                  Registrado por: {abono.registradoPor}
-                                </p>
-                              )}
-                              {abono.observacion && (
-                                <p className="text-xs text-[var(--sg-text-muted)]">
-                                  Obs: {abono.observacion}
-                                </p>
-                              )}
-                            </div>
-                            <p className="shrink-0 text-lg font-extrabold text-[var(--sg-text-primary)]">
-                              {formatCurrency(abono.monto)}
-                            </p>
-                          </div>
-
-                          {hasAttachments && (
-                            <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                              {attachments.map((attachment, idx) => {
-                                const isImage = isImageAttachment(attachment);
-                                const isPdf = isPdfAttachment(attachment);
-                                const filename = attachment.filename || `Comprobante ${idx + 1}`;
-                                return (
-                                  <button
-                                    key={attachment.id ?? `${abono.id}-${idx}`}
-                                    type="button"
-                                    onClick={() => openComprobanteViewer(abono.id, attachment)}
-                                    className="group relative h-10 w-10 shrink-0 overflow-hidden rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] transition hover:border-[var(--sg-lime)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)]"
-                                    title={filename}
-                                    aria-label={`Abrir comprobante ${idx + 1}`}
-                                  >
-                                    {isImage ? (
-                                      <Image
-                                        src={attachment.thumbnailUrl || attachment.url}
-                                        alt={filename}
-                                        width={40}
-                                        height={40}
-                                        unoptimized
-                                        className="h-full w-full object-cover"
-                                      />
-                                    ) : (
-                                      <div className="flex h-full w-full flex-col items-center justify-center gap-0.5">
-                                        <FileIcon className="h-3 w-3 text-[var(--sg-text-secondary)]" />
-                                        <span
-                                          className={`rounded px-1 py-0.5 text-[9px] font-bold tracking-wide ${
-                                            isPdf
-                                              ? "bg-red-500/20 text-red-300"
-                                              : "bg-[var(--sg-card-elevated)] text-[var(--sg-text-secondary)]"
-                                          }`}
-                                        >
-                                          {isPdf ? "PDF" : "FILE"}
-                                        </span>
-                                      </div>
-                                    )}
-                                    <span className="pointer-events-none absolute inset-0 hidden items-center justify-center bg-black/35 text-[var(--sg-text-primary)] sm:flex sm:opacity-0 sm:transition sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">
-                                      <EyeIcon className="h-3.5 w-3.5" />
-                                    </span>
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <a
-                              href={`/tecnicos/ordenes/${encodeURIComponent(
-                                id ?? ""
-                              )}/abonos/${encodeURIComponent(abono.id)}/imprimir`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 py-1 text-[11px] font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)]"
-                            >
-                              <PrintIcon className="h-3.5 w-3.5" />
-                              Imprimir comprobante
-                            </a>
-                            <label
-                              className={`inline-flex cursor-pointer items-center gap-1 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-2 py-1 text-[11px] font-semibold text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)] focus-within:outline-none focus-within:ring-1 focus-within:ring-[var(--sg-lime)] ${
-                                isAdjuntoUploading ? "opacity-60 pointer-events-none" : ""
-                              }`}
-                            >
-                              <PaperclipIcon className="h-3.5 w-3.5" />
-                              {isAdjuntoUploading ? "Subiendo..." : "Agregar comprobante"}
-                              <input
-                                type="file"
-                                className="sr-only"
-                                accept="image/*,.pdf"
-                                disabled={isAdjuntoUploading}
-                                onChange={(event) => {
-                                  const selectedFile = event.target.files?.[0] ?? null;
-                                  void handleAgregarComprobanteAbono(abono.id, selectedFile);
-                                  event.target.value = "";
-                                }}
-                              />
-                            </label>
-                            {!isAnulado && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setAbonoDeleteError(null);
-                                  setAbonoDeleteConfirmId((prev) => (prev === abono.id ? null : abono.id));
-                                }}
-                                className={lineDeleteActionButtonClass}
-                                title="Anular abono"
-                                aria-label="Anular abono"
-                                disabled={isDeleting}
-                              >
-                                {isDeleting ? (
-                                  <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
-                                ) : (
-                                  <TrashIcon className="h-4 w-4" />
-                                )}
-                              </button>
-                            )}
-                          </div>
-
-                          {attachmentError && (
-                            <p className="mt-2 text-xs text-red-400">{attachmentError}</p>
-                          )}
-                          {isConfirming && !isAnulado && (
-                            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
-                              <span className="text-[var(--sg-text-muted)]">¿Anular este abono de la orden?</span>
-                              <button
-                                type="button"
-                                onClick={() => setAbonoDeleteConfirmId(null)}
-                                className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] px-2 py-1 text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
-                                disabled={isDeleting}
-                              >
-                                Cancelar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleAnularAbonoConfirm(abono.id)}
-                                className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2 py-1 text-[var(--sg-danger)] transition hover:brightness-110 disabled:opacity-60"
-                                disabled={isDeleting}
-                              >
-                                Anular
-                              </button>
-                              {abonoDeleteError && <span className="text-red-400">{abonoDeleteError}</span>}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-
+              <CuentaCard
+                cuenta={cuentaUnificada}
+                documento={cuentaDocumento}
+                origenTipo="orden"
+                esAdmin={isAdministratorRole(userRol)}
+                cargando={cuentaUnificadaLoading}
+                onCuentaCambiada={() => void refreshOrdenDetalleFinanzas()}
+                onVerComprobante={(abonoId, adjunto) => openComprobanteViewer(abonoId, adjunto)}
+                onRegistrarPago={() => {
+                  setAbonoError(null);
+                  setAbonoMessage(null);
+                  // Abre el cobro con el saldo ya puesto (se puede cambiar
+                  // para pagos en varias partes).
+                  const saldo = cuentaUnificada?.saldo ?? 0;
+                  if (saldo > 0) setAbonoMonto(saldo.toFixed(2));
+                  cargarSaldoAFavorCliente();
+                  setOpenAbonoModal(true);
+                }}
+              />
             </section>
           </aside>
         </div>

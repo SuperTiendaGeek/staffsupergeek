@@ -18,6 +18,7 @@ import {
 } from "@/types/tecnicos";
 import { etiquetaAirtable, codigoDesdeAirtable } from "@/lib/facturacion/reglas/identificacion";
 import { credencialesDelTipo, nombreLimpio } from "@/lib/productos-digitales/reglas";
+import { esPagoEnLinea } from "@/lib/cobros/anular";
 
 // Attachment mínimo (id + url) usado para adjuntos simples de un campo.
 export interface AirtableSimpleAttachment {
@@ -402,7 +403,7 @@ const firstNumber = (value: unknown): number | null => {
   return null;
 };
 
-const parseAttachments = (value: unknown): AbonoComprobanteAdjunto[] => {
+export const parseAttachments = (value: unknown): AbonoComprobanteAdjunto[] => {
   if (!Array.isArray(value)) return [];
   const attachments: AbonoComprobanteAdjunto[] = [];
   for (const item of value) {
@@ -551,6 +552,14 @@ const mapAbonoRecord = (
     registradoPor: pickOptionalStringField(f, ["Registrado Por"]),
     comprobante: comprobantes[0]?.url ?? pickOptionalStringField(f, ["Comprobante"]),
     comprobantes,
+    // Punto 11: pago en línea y constancia de la anulación.
+    enLinea: esPagoEnLinea({
+      metodoPago: pickOptionalStringField(f, ["M\u00e9todo de Pago"]),
+      conPagoEnLinea: Array.isArray(f["Pagos en l\u00ednea"]) && (f["Pagos en l\u00ednea"] as unknown[]).length > 0,
+    }),
+    motivoAnulacion: pickOptionalStringField(f, ["Motivo de anulaci\u00f3n"]),
+    anuladoPor: pickOptionalStringField(f, ["Anulado por"]),
+    fechaAnulacion: pickOptionalStringField(f, ["Fecha de anulaci\u00f3n"]),
   };
 };
 const mapCatalogoRepuestoRecord = (record: AirtableGenericRecord): CatalogoRepuesto => {
@@ -3278,8 +3287,14 @@ export const deleteServicioPorOrdenById = async ({
 // (Estado del Abono = "Anulado") para conservar constancia, nunca se elimina.
 export const anularAbonoPorOrden = async ({
   abonoRecordId,
+  motivo,
+  anuladoPor,
 }: {
   abonoRecordId: string;
+  /** Punto 11: por qué se anula (obligatorio desde la tarjeta Cuenta). */
+  motivo?: string;
+  /** Punto 11: quién lo anula. */
+  anuladoPor?: string;
 }): Promise<{ abono: AbonoPorOrden }> => {
   const recordId = abonoRecordId.trim();
   if (!recordId) {
@@ -3296,7 +3311,13 @@ export const anularAbonoPorOrden = async ({
   await patchRecordFields({
     tableName: AIRTABLE_TABLES.abonos,
     recordId,
-    fields: { "Estado del Abono": "Anulado" },
+    fields: {
+      "Estado del Abono": "Anulado",
+      // Punto 11: constancia (campos creados el 21-nov-2026).
+      ...(motivo ? { "Motivo de anulaci\u00f3n": motivo } : {}),
+      ...(anuladoPor ? { "Anulado por": anuladoPor } : {}),
+      ...(motivo || anuladoPor ? { "Fecha de anulaci\u00f3n": new Date().toISOString() } : {}),
+    },
     client,
   });
 

@@ -133,6 +133,12 @@ export interface AbonoPorOrden {
   registradoPor: string | null;
   comprobante: string | null;
   comprobantes: AbonoComprobanteAdjunto[];
+  /** Punto 11: entró por la pasarela (PayPhone o enlazado a "Pagos en línea"). */
+  enLinea?: boolean;
+  /** Punto 11: constancia de la anulación. */
+  motivoAnulacion?: string | null;
+  anuladoPor?: string | null;
+  fechaAnulacion?: string | null;
 }
 
 // Item reutilizable del catalogo de repuestos.

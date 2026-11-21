@@ -72,7 +72,7 @@ assert(requiereInspeccionPorDefecto({ categoria: "Cargador", tipoOperacion: TIPO
 assert((MOTIVOS_KARDEX as readonly string[]).includes("Parte de pago del cliente"), "entra al Kardex con su propio motivo");
 
 // ── Pantalla y permisos ──────────────────────────────────────────────────────
-const panel = fs.readFileSync("components/cuenta-unificada/CuentaUnificadaPanel.tsx", "utf8");
+const panel = fs.readFileSync("components/cuenta/CuentaCard.tsx", "utf8");
 assert(panel.includes("<ParteDePagoAccion"), "la cuenta (orden y pedido) ofrece 'Parte de pago'");
 const anular = fs.readFileSync("app/api/tecnicos/abonos-por-orden/[id]/route.ts", "utf8");
 assert(anular.indexOf("prepararAnulacionParteDePago(") < anular.indexOf("anularAbonoPorOrden("), "anular revisa la parte de pago ANTES de anular el abono");
