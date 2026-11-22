@@ -4,6 +4,10 @@ import { updateOrdenEstado } from "@/lib/tecnicos/airtable";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { sincronizarGarantiasDeLaOrden } from "@/lib/garantias/servidor";
 import { ESTADO_ENTREGADA } from "@/lib/entrega/reglas";
+import { isAdministratorRole } from "@/lib/apps";
+import { createHistorialEntrada } from "@/lib/tecnicos/airtable";
+import { revisarCambioDeEstado, textoReapertura } from "@/lib/tecnicos/regreso/reglas";
+import { leerOrdenBasica } from "@/lib/tecnicos/regreso/servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +26,7 @@ export async function PATCH(request: Request, { params }: Params) {
     );
   }
 
-  let body: { estado?: string };
+  let body: { estado?: string; motivo?: string };
   try {
     body = await request.json();
   } catch {
@@ -57,6 +61,23 @@ export async function PATCH(request: Request, { params }: Params) {
     );
   }
 
+  // Rediseño R6: una orden entregada o en reciclaje está cerrada. Solo un
+  // administrador la reabre, con motivo (queda en la Actividad). Si el equipo
+  // volvió, el camino es «Regresó el equipo» (orden nueva enlazada).
+  const actual = await leerOrdenBasica(ordenRecordId).catch(() => null);
+  if (!actual) {
+    return NextResponse.json({ success: false, error: "Orden no encontrada" }, { status: 404 });
+  }
+  const revision = revisarCambioDeEstado({
+    estadoActual: actual.estado,
+    nuevoEstado: estadoNormalizado,
+    esAdmin: isAdministratorRole(session.user.rol),
+    motivo: body.motivo,
+  });
+  if (!revision.ok) {
+    return NextResponse.json({ success: false, error: revision.error }, { status: revision.status });
+  }
+
   try {
     const result = await updateOrdenEstado({
       ordenRecordId,
@@ -76,7 +97,28 @@ export async function PATCH(request: Request, { params }: Params) {
       hechoPor: session.user.nombre || session.user.email || "Portal",
     });
 
-    return NextResponse.json({ success: true, data: { ...result, garantias } });
+    let reapertura = null;
+    if (revision.reapertura) {
+      reapertura = await createHistorialEntrada({
+        ordenRecordId,
+        avanceTexto: textoReapertura({
+          estadoActual: actual.estado,
+          nuevoEstado: estadoNormalizado,
+          motivo: body.motivo ?? "",
+          admin: session.user.nombre || session.user.email || "",
+        }),
+        tipoActividad: "Reapertura",
+        visibilidad: "Interna",
+        creadoPorNombre: session.user.nombre ?? null,
+        creadoPorEmail: session.user.email ?? null,
+        creadoPorUsuarioId: session.user.userId ?? null,
+      }).catch((e) => {
+        console.error("[estado] constancia de reapertura", e);
+        return null;
+      });
+    }
+
+    return NextResponse.json({ success: true, data: { ...result, garantias, reapertura } });
   } catch (error) {
     console.error("Error al actualizar estado en Airtable:", error);
     const message = error instanceof Error ? error.message : "Error inesperado";

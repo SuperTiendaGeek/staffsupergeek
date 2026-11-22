@@ -5,7 +5,7 @@ import { isAdministratorRole } from "@/lib/apps";
 import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 
 import styles from "@/components/tecnicos/layout/TecnicosTheme.module.css";
 import { OrdenDocumentosCard } from "@/components/tecnicos/OrdenDocumentosCard";
@@ -26,6 +26,9 @@ import { METODOS_COBRO_NUEVO, esMetodoCobroNuevoValido, etiquetaMetodoPago, requ
 import { METODO_SALDO_A_FAVOR, maximoUsable } from "@/lib/saldo-favor/reglas";
 import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
 import { EntregarClientePanel } from "@/components/tecnicos/ordenes/EntregarClientePanel";
+import { RegresoEquipoDialog } from "@/components/tecnicos/ordenes/RegresoEquipoDialog";
+import { ReabrirOrdenDialog } from "@/components/tecnicos/ordenes/ReabrirOrdenDialog";
+import { esOrdenCerrada } from "@/lib/tecnicos/regreso/reglas";
 import { avisoAbonoDeMas } from "@/lib/cobros/aviso-abono";
 
 type HistorialItem = {
@@ -110,6 +113,8 @@ type ProductoDigitalItem = {
 };
 
 type OrdenDetalle = {
+  /** Rediseño R6: de qué orden nace y qué regresos tuvo. */
+  regreso?: { ordenAnteriorId: string | null; ordenAnteriorCodigo: string; tipo: string; regresos: Array<{ id: string; codigo: string }> };
   /** Entregar al cliente (punto 6). */
   entrega?: { fecha: string; retiradoPor: string; motivoSinCobro: string } | null;
   recordId: string;
@@ -631,6 +636,10 @@ function InlineEditField({
 export function OrdenDetalleClient() {
   const params = useParams<{ id: string }>();
   const id = params?.id;
+  const router = useRouter();
+  // Rediseño R6: la orden entregada queda cerrada; el regreso crea otra.
+  const [regresoAbierto, setRegresoAbierto] = useState(false);
+  const [reabrirAbierto, setReabrirAbierto] = useState(false);
   const [orden, setOrden] = useState<OrdenDetalle | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1572,6 +1581,23 @@ export function OrdenDetalleClient() {
                       <span className="text-sm text-[var(--sg-text-muted)]">
                         {[orden.tipoOrden, formatDate(orden.fechaIngreso)].filter(Boolean).join(" · ")}
                       </span>
+                      {orden.regreso?.ordenAnteriorId && (
+                        <Link
+                          href={`/tecnicos/ordenes/${encodeURIComponent(orden.regreso.ordenAnteriorId)}`}
+                          className="inline-flex h-[22px] items-center rounded-full bg-[rgba(120,183,255,.14)] px-2 text-[11px] font-bold text-[#9CCBFF] transition hover:brightness-110"
+                        >
+                          Regreso de {orden.regreso.ordenAnteriorCodigo || "otra orden"}{orden.regreso.tipo ? ` · ${orden.regreso.tipo}` : ""}
+                        </Link>
+                      )}
+                      {orden.regreso?.regresos.map((r) => (
+                        <Link
+                          key={r.id}
+                          href={`/tecnicos/ordenes/${encodeURIComponent(r.id)}`}
+                          className="inline-flex h-[22px] items-center rounded-full bg-[rgba(120,183,255,.14)] px-2 text-[11px] font-bold text-[#9CCBFF] transition hover:brightness-110"
+                        >
+                          Regresó → {r.codigo}
+                        </Link>
+                      ))}
                       <span className="select-none text-[var(--sg-border)]">|</span>
                       <a
                         href={`/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/imprimir/ticket`}
@@ -1607,6 +1633,19 @@ export function OrdenDetalleClient() {
                     </div>
                   </div>
                   <div className="flex shrink-0 flex-col items-start gap-2 md:items-end">
+                    {esOrdenCerrada(orden.estadoActual) ? (
+                      <div className="flex w-52 items-center justify-between gap-2">
+                        <span className="inline-flex h-[28px] items-center gap-1.5 rounded-full bg-[rgba(86,227,164,.13)] px-3 text-xs font-bold text-[#56E3A4]">
+                          <svg width="11" height="11" viewBox="0 0 14 14" aria-hidden="true"><rect x="3" y="6" width="8" height="6" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.4"/><path d="M4.8 6V4.5a2.2 2.2 0 0 1 4.4 0V6" fill="none" stroke="currentColor" strokeWidth="1.4"/></svg>
+                          {orden.estadoActual === "Finalizado Entregado" ? "Entregada · cerrada" : "Reciclaje · cerrada"}
+                        </span>
+                        {isAdministratorRole(userRol) && (
+                          <button type="button" onClick={() => setReabrirAbierto(true)} className="text-[11px] font-semibold text-[var(--sg-text-muted)] transition hover:text-[#FF9C94]">
+                            Reabrir…
+                          </button>
+                        )}
+                      </div>
+                    ) : (
                     <div
                       className={`relative w-52 ${
                         estadoSaving || loading ? "pointer-events-none opacity-70" : ""
@@ -1628,6 +1667,16 @@ export function OrdenDetalleClient() {
                         buttonClassName="!h-[28px] !rounded-full !px-3.5 !py-0 !text-xs !font-bold !uppercase !tracking-wide !text-[var(--sg-lime)] !shadow-none !border !border-[var(--sg-lime)]/30"
                       />
                     </div>
+                    )}
+                    {orden.estadoActual === "Finalizado Entregado" && (
+                      <button
+                        type="button"
+                        onClick={() => setRegresoAbierto(true)}
+                        className="h-[28px] w-52 rounded-full bg-[var(--sg-lime)] px-3.5 text-xs font-bold uppercase tracking-wide text-[#1E1F1C] transition hover:brightness-95"
+                      >
+                        Regresó el equipo
+                      </button>
+                    )}
                     {orden.estadoActual !== "Finalizado Entregado" && orden.estadoActual !== "Enviado a Reciclaje" ? (
                       <button
                         type="button"
@@ -2304,6 +2353,29 @@ export function OrdenDetalleClient() {
                   </div>
                 </div>
               </div>
+            )}
+
+            {regresoAbierto && orden && (
+              <RegresoEquipoDialog
+                ordenId={orden.recordId}
+                onCerrar={() => setRegresoAbierto(false)}
+                onCreada={(r) => {
+                  setRegresoAbierto(false);
+                  router.push(`/tecnicos/ordenes/${encodeURIComponent(r.ordenId)}`);
+                }}
+              />
+            )}
+
+            {reabrirAbierto && orden && (
+              <ReabrirOrdenDialog
+                ordenId={orden.recordId}
+                codigo={orden.idVisible}
+                onCerrar={() => setReabrirAbierto(false)}
+                onReabierta={async () => {
+                  setReabrirAbierto(false);
+                  await fetchData({ showLoading: false, preserveError: true });
+                }}
+              />
             )}
 
             {entregaAbierta && orden && (
