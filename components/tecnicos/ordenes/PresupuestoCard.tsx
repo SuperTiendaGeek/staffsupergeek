@@ -26,6 +26,9 @@ import {
 import { EntregaProductoDigital, type ProductoDigitalEntrega } from "./EntregaProductoDigital";
 import { EntregarLicencia } from "./EntregarLicencia";
 import { PedidoAparteDialog } from "./PedidoAparteDialog";
+import { EstadoTrabajo } from "./EstadoTrabajo";
+import { CopyableSKU } from "@/components/ui/copyable-sku";
+import type { TrabajoVisible } from "@/lib/tecnicos/presupuesto/trabajo";
 import { PIEZAS_RETIRADAS } from "@/lib/garantias/reglas";
 import { fechaCorta, textoOrigen, textoPlazo, type OrigenGarantia } from "@/lib/garantias/plazos";
 import { AvisoNovedadVenta, cerrarNovedadesVendidas, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
@@ -647,6 +650,9 @@ export function PresupuestoCard({
   const [pedidos, setPedidos] = useState<Record<string, InfoPedido>>({});
   // Fase 2: situación de la compra de cada repuesto bajo pedido (por línea).
   const [compras, setCompras] = useState<Record<string, { codigo: string; sku: string | null; texto: string; tono: string; clave?: string }>>({});
+  // Rediseño R2: avance de cada trabajo aprobado. R9: SKU del artículo.
+  const [trabajos, setTrabajos] = useState<Record<string, TrabajoVisible>>({});
+  const [skus, setSkus] = useState<Record<string, string>>({});
   // Punto 5B-2: Staff y Administradores compran la licencia desde la línea.
   const [puedeComprar, setPuedeComprar] = useState(false);
   const [reversas, setReversas] = useState<Record<string, ReversasLinea>>({});
@@ -709,7 +715,7 @@ export function PresupuestoCard({
       const j = await r.json();
       if (!montado.current) return;
       if (!j.success) { setError(j.error ?? "No se pudo cargar el presupuesto"); return; }
-      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setCompras(j.data.compras ?? {}); setPuedeComprar(j.data.puedeComprar === true); setReversas(j.data.reversas ?? {}); setProveedores(j.data.proveedores ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setCargosSueltos(j.data.cargosSinPresupuesto ?? null); setError(null);
+      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setCompras(j.data.compras ?? {}); setTrabajos(j.data.trabajos ?? {}); setSkus(j.data.skus ?? {}); setPuedeComprar(j.data.puedeComprar === true); setReversas(j.data.reversas ?? {}); setProveedores(j.data.proveedores ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setCargosSueltos(j.data.cargosSinPresupuesto ?? null); setError(null);
       setSeleccion((prev) => new Set([...prev].filter((id) => (j.data.lineas as LineaPresupuesto[]).some((l) => l.id === id && (l.estado === "Propuesta" || l.estado === "Aprobada")))));
     } catch { if (montado.current) setError("Error de red al cargar el presupuesto"); }
     finally { if (montado.current) setCargando(false); }
@@ -1015,8 +1021,13 @@ export function PresupuestoCard({
                         }
                         if (!l.operacionId) {
                           return (
-                            <span className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">
-                              {l.tipo}{l.tipo === "Repuesto" ? (l.itemId ? " · del inventario" : " · por conseguir") : ""}
+                            <span className="flex flex-wrap items-center gap-1.5">
+                              <span className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">
+                                {l.tipo}{l.tipo === "Repuesto" ? (l.itemId ? " · del inventario" : " · por conseguir") : ""}
+                              </span>
+                              {skus[l.id] && (
+                                <CopyableSKU sku={skus[l.id]} className="rounded-md border border-[#4A4A45] bg-[#151613] px-1.5 py-px font-mono text-[10.5px] font-semibold text-[var(--sg-text-primary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-lime)]" />
+                              )}
                             </span>
                           );
                         }
@@ -1119,7 +1130,13 @@ export function PresupuestoCard({
                     <td className="px-2 py-1.5 text-right align-top tabular-nums">{mon(l.precioUnitario)}</td>
                     <td className="px-2 py-1.5 text-right align-top font-semibold tabular-nums text-[var(--sg-text-primary)]">{mon(subtotalLinea(l))}</td>
                     <td className="px-2 py-1.5 align-top">
-                      {(() => { const e = estadoVisible(l); return <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${TONO_BADGE[e.tono]}`}>{e.texto}</span>; })()}
+                      {trabajos[l.id] ? (
+                        <span className="flex flex-col items-start gap-0.5">
+                          <EstadoTrabajo ordenId={ordenId} lineaId={l.id} visible={trabajos[l.id]} deshabilitado={ocupado === l.id} onCambiado={recargar} />
+                          {trabajos[l.id].novedad && <span className="max-w-[180px] text-[10.5px] leading-snug text-[#FFB547]">{trabajos[l.id].novedad}</span>}
+                          <span className="text-[10px] text-[var(--sg-text-muted)]">{estadoVisible(l).texto}</span>
+                        </span>
+                      ) : (() => { const e = estadoVisible(l); return <span className={`inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] font-semibold ${TONO_BADGE[e.tono]}`}>{e.texto}</span>; })()}
                     </td>
                     <td className="whitespace-nowrap px-2 py-1.5 text-right align-top text-[11px]">
                       {puedePedidoAparte(l, compras[l.id]?.clave) && (

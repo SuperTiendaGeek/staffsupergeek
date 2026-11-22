@@ -1,4 +1,5 @@
 import "server-only";
+import { lineaConTrabajo, trabajoVisible } from "@/lib/tecnicos/presupuesto/trabajo";
 
 // Asistente de la orden (punto 11B · 21-nov-2026) — servidor.
 // Solo LEE lo que la regla pura (./contexto.ts) necesita. Lo que falta para
@@ -83,6 +84,8 @@ export async function leerOrdenParaIA(ordenId: string): Promise<DatosOrdenIA> {
     respuestaCliente: l.respuestaCliente ?? "",
     garantia: l.garantia ?? "",
     fechaAprobacion: l.fechaAprobacion,
+    // Lo que marcó el técnico (la espera automática del repuesto la ve en el pedido).
+    avance: lineaConTrabajo(l) ? trabajoVisible(l).texto : "",
   }));
   const total = revision.totalCobrable;
   const saldo = revision.saldo;

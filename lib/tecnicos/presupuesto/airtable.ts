@@ -11,6 +11,7 @@ import { fotosDeAdjuntos } from "@/lib/pedidos-especiales/fotos";
 import { loadAirtableEnv } from "../config/airtable";
 import { normalizarGarantia, normalizarPiezaRetirada, type EstadoGarantia, type PiezaRetirada } from "@/lib/garantias/reglas";
 import { normalizarPrioridad, type EstadoLinea, type InfoPedido, type LineaPresupuesto, type NuevaLineaInput, type Prioridad, type TipoLinea } from "./reglas";
+import { normalizarEstadoTrabajo, normalizarMotivoEspera, type EstadoTrabajo, type MotivoEspera } from "./trabajo";
 
 export const T_PRESUPUESTO = "Presupuesto por Orden";
 const T_ORDENES = "Órdenes de Reparación";
@@ -63,6 +64,12 @@ const F = {
   piezaRetirada:    "Pieza retirada",
   piezaRetiradaSku: "Pieza retirada SKU",
   fechaEntregaGarantia: "Fecha entrega garantía",
+  // Rediseño R2 (22-nov-2026): avance del trabajo por línea.
+  estadoTrabajo:    "Estado trabajo",
+  motivoEspera:     "Motivo de espera",
+  novedadCliente:   "Novedad para el cliente",
+  trabajoPor:       "Trabajo actualizado por",
+  trabajoEn:        "Trabajo actualizado en",
 } as const;
 
 type Registro = { id: string; fields: Record<string, unknown> };
@@ -147,6 +154,11 @@ function mapLinea(r: Registro): LineaPresupuesto {
     piezaRetirada: normalizarPiezaRetirada(f[F.piezaRetirada]),
     piezaRetiradaSku: texto(f[F.piezaRetiradaSku]),
     fechaEntregaGarantia: texto(f[F.fechaEntregaGarantia]),
+    estadoTrabajo: normalizarEstadoTrabajo(f[F.estadoTrabajo]),
+    motivoEspera: normalizarMotivoEspera(f[F.motivoEspera]),
+    novedadCliente: texto(f[F.novedadCliente]),
+    trabajoPor: texto(f[F.trabajoPor]),
+    trabajoEn: texto(f[F.trabajoEn]),
   };
 }
 
@@ -371,6 +383,13 @@ export type CambiosLinea = Partial<{
   piezaRetiradaSku: string;
   /** "" la borra. */
   fechaEntregaGarantia: string;
+  /** Rediseño R2: avance del trabajo. "" lo borra. */
+  estadoTrabajo: EstadoTrabajo | "";
+  motivoEspera: MotivoEspera | "";
+  novedadCliente: string;
+  trabajoPor: string;
+  /** ISO. */
+  trabajoEn: string;
 }>;
 
 export async function actualizarLinea(lineaId: string, c: CambiosLinea): Promise<LineaPresupuesto> {
@@ -412,6 +431,11 @@ export async function actualizarLinea(lineaId: string, c: CambiosLinea): Promise
   if (c.piezaRetirada !== undefined)  fields[F.piezaRetirada] = c.piezaRetirada || null;
   if (c.piezaRetiradaSku !== undefined) fields[F.piezaRetiradaSku] = c.piezaRetiradaSku;
   if (c.fechaEntregaGarantia !== undefined) fields[F.fechaEntregaGarantia] = c.fechaEntregaGarantia || null;
+  if (c.estadoTrabajo !== undefined)  fields[F.estadoTrabajo] = c.estadoTrabajo || null;
+  if (c.motivoEspera !== undefined)   fields[F.motivoEspera] = c.motivoEspera || null;
+  if (c.novedadCliente !== undefined) fields[F.novedadCliente] = c.novedadCliente.trim();
+  if (c.trabajoPor !== undefined)     fields[F.trabajoPor] = c.trabajoPor;
+  if (c.trabajoEn !== undefined)      fields[F.trabajoEn] = c.trabajoEn || null;
   if (c.agregarHistorial)             fields[F.historial] = [c.agregarHistorial.anterior, c.agregarHistorial.entrada].filter(Boolean).join("\n");
   const r = await pedir<Registro>(url(T_PRESUPUESTO, lineaId), { method: "PATCH", body: JSON.stringify({ fields }) });
   return mapLinea(r);

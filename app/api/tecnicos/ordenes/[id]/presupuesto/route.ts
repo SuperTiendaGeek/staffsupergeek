@@ -7,6 +7,9 @@ import {
   listarLineas, crearLinea, actualizarLinea, cargarInfoPedidos, nombresProveedores,
 } from "@/lib/tecnicos/presupuesto/airtable";
 import { sincronizarConLasTarjetas } from "@/lib/tecnicos/presupuesto/cargar";
+import { lineaConTrabajo, trabajoVisible, type TrabajoVisible } from "@/lib/tecnicos/presupuesto/trabajo";
+import { porIds as registrosPorIds, texto as textoDe } from "@/lib/estado-cuenta/airtable";
+import type { ClaveSituacion } from "@/lib/compras/reglas";
 import {
   normalizarPrioridad, nuevoGrupoAlternativas,
   validarLinea, estadoPresupuesto, totalesPresupuesto, sincronizarConPedido, reversasDisponibles,
@@ -73,6 +76,20 @@ export async function GET(_req: Request, { params }: Params) {
       })
     );
     const proveedores = await nombresProveedores(lineas.map((l) => l.proveedorId).filter((x): x is string => !!x));
+    // Rediseño R2: avance de cada trabajo aprobado (con la espera automática
+    // del repuesto bajo pedido). R9: el SKU del artículo de inventario, visible.
+    const trabajos: Record<string, TrabajoVisible> = Object.fromEntries(
+      lineas.filter(lineaConTrabajo).map((l) => [l.id, trabajoVisible(l, (compras[l.id]?.clave ?? null) as ClaveSituacion | null)])
+    );
+    const itemIds = lineas.map((l) => l.itemId).filter((x): x is string => !!x);
+    const items = itemIds.length
+      ? await registrosPorIds("Shipping Items", itemIds, ["SKU"]).catch((e) => { console.warn("[presupuesto GET] skus", e); return new Map(); })
+      : new Map();
+    const skus: Record<string, string> = {};
+    for (const l of lineas) {
+      const sku = (l.itemId ? textoDe(items.get(l.itemId)?.fields["SKU"]) : "") || compras[l.id]?.sku || "";
+      if (sku) skus[l.id] = sku;
+    }
     // Punto 5B-2: el botón "Comprar" de una licencia solo para Staff y Administradores.
     let puedeComprarAqui = false;
     if (lineas.some((l) => l.tipo === "Producto digital" && l.solicitudId)) {
@@ -82,7 +99,7 @@ export async function GET(_req: Request, { params }: Params) {
     return NextResponse.json({
       success: true,
       data: {
-        lineas, pedidos: pedidosObj, reversas, proveedores, compras, puedeComprar: puedeComprarAqui,
+        lineas, pedidos: pedidosObj, reversas, proveedores, compras, puedeComprar: puedeComprarAqui, trabajos, skus,
         estado: estadoPresupuesto(lineas), totales: totalesPresupuesto(lineas),
         cargosSinPresupuesto: sinc.cargosSinPresupuesto,
       },

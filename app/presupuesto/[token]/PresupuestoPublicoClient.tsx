@@ -73,6 +73,14 @@ function AvisoNecesaria() {
   return <p className="mt-2 rounded-lg border border-red-300/40 bg-red-400/10 px-3 py-2 text-xs text-red-100">Sin esto no podemos continuar con la reparación de tu equipo.</p>;
 }
 
+// Rediseño R2: el avance de cada trabajo aprobado (lo marca el técnico).
+const TONO_TRABAJO: Record<NonNullable<VistaLinea["trabajo"]>["tono"], string> = {
+  gris: "border-[#3A3A36] bg-[#20201E] text-[#C9C9C4]",
+  azul: "border-sky-300/50 bg-sky-300/10 text-sky-200",
+  ambar: "border-amber-300/50 bg-amber-300/10 text-amber-200",
+  verde: "border-emerald-300/40 bg-emerald-300/10 text-emerald-200",
+};
+
 const ETIQUETA: Record<Situacion, { texto: string; clase: string }> = {
   nueva:       { texto: "Nuevo · requiere tu respuesta",      clase: "border-[#D7FF4F]/50 bg-[#D7FF4F]/10 text-[#D7FF4F]" },
   modificada:  { texto: "Cambió · requiere tu respuesta",     clase: "border-amber-300/50 bg-amber-300/10 text-amber-200" },
@@ -204,7 +212,10 @@ function TarjetaLinea({ l, decision, onDecidir, abierta, onAbrir, cartel, acepta
             <Prioridad p={l.prioridad} />
             {l.garantia
               ? <span className="inline-block rounded-full border border-sky-300/50 bg-sky-300/10 px-2 py-0.5 text-[11px] font-semibold text-sky-200">Garantía SUPER GEEK</span>
-              : <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${e.clase}`}>{cambio ? "Cambiarás tu respuesta" : e.texto}</span>}
+              : l.trabajo && !cambio
+                ? <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TONO_TRABAJO[l.trabajo.tono]}`}>{l.trabajo.texto}</span>
+                : <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${e.clase}`}>{cambio ? "Cambiarás tu respuesta" : e.texto}</span>}
+            {l.garantia && l.trabajo && <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TONO_TRABAJO[l.trabajo.tono]}`}>{l.trabajo.texto}</span>}
           </div>
           <p className={`mt-2 text-[15px] font-semibold leading-snug ${tachada ? "text-[#8A8A80] line-through" : "text-[#F5F5F5]"}`}>{l.descripcion}</p>
           <p className="mt-0.5 text-xs text-[#A7A7A7]">
@@ -219,6 +230,7 @@ function TarjetaLinea({ l, decision, onDecidir, abierta, onAbrir, cartel, acepta
           )}
           {l.notaCliente && <p className="mt-2 whitespace-pre-line rounded-lg bg-[#1B1B1B] px-3 py-2 text-xs text-[#D6D6D0]">{l.notaCliente}</p>}
           {l.nota && <p className="mt-1 text-xs text-[#A7A7A7]">{l.nota}</p>}
+          {l.trabajo?.novedad && <p className="mt-2 whitespace-pre-line rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">{l.trabajo.novedad}</p>}
         </div>
         <p className={`shrink-0 text-base font-black tabular-nums ${tachada ? "text-[#8A8A80] line-through" : "text-[#F5F5F5]"}`}>{mon(l.subtotal)}</p>
       </div>
@@ -271,7 +283,10 @@ function TarjetaGrupo({ g, lineas, decisiones, onElegir, abierta, onAbrir }: {
                   <span className="block text-xs text-[#A7A7A7]">{l.tipo}{l.bajoPedido ? ` · Bajo pedido${l.tiempoEstimado ? `, llega en ${l.tiempoEstimado}` : ""}` : ""}{l.situacion === "modificada" ? " · cambió" : ""}</span>
                   {l.anterior && <span className="block text-xs text-amber-200/90">Antes: {mon(l.anterior.precioUnitario)}</span>}
                   {l.notaCliente && <span className="mt-1 block whitespace-pre-line text-xs text-[#D6D6D0]">{l.notaCliente}</span>}
-                  {l.situacion === "en_proceso" && <span className="mt-1 block text-[11px] text-emerald-200">Aprobado · en proceso</span>}
+                  {l.trabajo
+                    ? <span className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-[11px] font-semibold ${TONO_TRABAJO[l.trabajo.tono]}`}>{l.trabajo.texto}</span>
+                    : l.situacion === "en_proceso" && <span className="mt-1 block text-[11px] text-emerald-200">Aprobado · en proceso</span>}
+                  {l.trabajo?.novedad && <span className="mt-1 block text-xs text-amber-100">{l.trabajo.novedad}</span>}
                 </span>
                 <span className={`shrink-0 text-base font-black tabular-nums ${tachada ? "text-[#8A8A80]" : "text-[#F5F5F5]"}`}>{mon(l.subtotal)}</span>
               </button>
