@@ -103,6 +103,13 @@ export type LineaPresupuesto = {
   piezaRetirada?:     PiezaRetirada | "";
   piezaRetiradaSku?:  string;
   fechaEntregaGarantia?: string;
+  /** Rediseño R2: avance del trabajo (lo marca el técnico). Ver ./trabajo.ts. */
+  estadoTrabajo?:     import("./trabajo").EstadoTrabajo | "";
+  motivoEspera?:      import("./trabajo").MotivoEspera | "";
+  /** Frase que el cliente ve en su enlace cuando el trabajo espera por una novedad. */
+  novedadCliente?:    string;
+  trabajoPor?:        string;
+  trabajoEn?:         string;
 };
 
 /** Datos de un repuesto que se trae BAJO PEDIDO (se vuelven la opción

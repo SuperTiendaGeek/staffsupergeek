@@ -75,6 +75,8 @@ export type VistaLinea = {
   nota: string;
   /** Garantía SUPER GEEK confirmada (punto 20): informativa, $0, no se responde. */
   garantia?: boolean;
+  /** Rediseño R2: avance del trabajo aprobado, como lo ve el cliente. */
+  trabajo?: { texto: string; tono: "gris" | "azul" | "ambar" | "verde"; novedad: string };
 };
 
 export type LineaRetirada = { descripcion: string; cantidad: number; precioUnitario: number; subtotal: number };

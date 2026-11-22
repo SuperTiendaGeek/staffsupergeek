@@ -36,7 +36,9 @@ import { getFacturacionConfig } from "@/lib/facturacion/config";
 import { enmascararCedula, generarPresupuestoPdf } from "./pdf";
 import { porIds, estadosDeCuentaDeOrdenes, CAMPOS_ORDEN_CUENTA } from "@/lib/estado-cuenta/airtable";
 import { CAMPO_INVERSO as CAMPO_SOLICITUDES, solicitudesPorIds } from "@/lib/compras/airtable";
-import { faltaParaRepuestos } from "@/lib/compras/reglas";
+import { faltaParaRepuestos, type ClaveSituacion } from "@/lib/compras/reglas";
+import { solicitudesDeOrden } from "@/lib/compras/servidor";
+import { lineaConTrabajo, trabajoVisible } from "./trabajo";
 import { linkedIds } from "@/lib/finanzas/airtable-client";
 import { mediosDisponibles } from "@/lib/pagos-en-linea/config";
 import { intentosDeLaOrden } from "@/lib/pagos-en-linea/airtable";
@@ -144,6 +146,21 @@ export async function vistaPublica(token: string): Promise<VistaPublica | null> 
   if (!o) return null;
   const [lineas, resps] = await Promise.all([listarLineas(o.id), leerRespuestasOrden(o.id)]);
   const vista = construirVista(lineas, detalleDeRespuestas(resps));
+  // Rediseño R2: el cliente ve el avance de cada trabajo aprobado (con la
+  // espera automática mientras llega el repuesto bajo pedido).
+  const porId = new Map(lineas.map((l) => [l.id, l]));
+  const compras = new Map<string, ClaveSituacion>();
+  if (lineas.some((l) => lineaConTrabajo(l) && l.solicitudId)) {
+    for (const s of await solicitudesDeOrden(o.id).catch((e) => { console.error("[presupuesto enlace] compras:", e); return []; })) {
+      if (s.lineaId) compras.set(s.lineaId, s.situacion.clave);
+    }
+  }
+  vista.lineas = vista.lineas.map((v) => {
+    const l = porId.get(v.id);
+    if (!l || !lineaConTrabajo(l)) return v;
+    const t = trabajoVisible(l, compras.get(v.id) ?? null);
+    return { ...v, trabajo: { texto: t.textoCliente, tono: t.tono, novedad: t.novedad } };
+  });
   const [cons, cobro] = await Promise.all([
     consentimientosDeLaOrden(lineas),
     cobroDeLaOrden(o).catch((e) => { console.error("[presupuesto enlace] cuenta:", e); return null; }),

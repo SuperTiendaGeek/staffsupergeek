@@ -28,6 +28,8 @@ export type LineaIA = {
   respuestaCliente: string;
   garantia: string;
   fechaAprobacion: string;
+  /** Rediseño R2: avance del trabajo ("En espera · repuesto", "Hecho"…). */
+  avance?: string;
 };
 
 export type RevisionIA = { clave: string; ok: boolean; texto: string };
@@ -136,7 +138,7 @@ export function textoOrden(d: DatosOrdenIA, ahoraIso: string): string {
   const dias = diasDesde(d.fechaIngreso, ahoraIso);
   const lineas = d.lineas.length
     ? d.lineas.map((l) => {
-        const extra = [l.respuestaCliente ? `cliente: ${l.respuestaCliente}` : "", l.garantia ? `garantía: ${l.garantia}` : ""].filter(Boolean).join(", ");
+        const extra = [l.avance ? `avance: ${l.avance}` : "", l.respuestaCliente ? `cliente: ${l.respuestaCliente}` : "", l.garantia ? `garantía: ${l.garantia}` : ""].filter(Boolean).join(", ");
         return `- ${l.descripcion} (${l.tipo}, ${l.estado}${extra ? `, ${extra}` : ""}) ${l.cantidad > 1 ? `${l.cantidad} × ` : ""}${dinero(l.precio)}`;
       }).join("\n")
     : "- (sin líneas de presupuesto)";

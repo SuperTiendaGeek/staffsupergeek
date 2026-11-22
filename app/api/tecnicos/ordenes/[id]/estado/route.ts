@@ -8,6 +8,7 @@ import { isAdministratorRole } from "@/lib/apps";
 import { createHistorialEntrada } from "@/lib/tecnicos/airtable";
 import { revisarCambioDeEstado, textoReapertura } from "@/lib/tecnicos/regreso/reglas";
 import { leerOrdenBasica } from "@/lib/tecnicos/regreso/servidor";
+import { tomarSiNoTieneResponsable } from "@/lib/tecnicos/responsable/servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -116,6 +117,11 @@ export async function PATCH(request: Request, { params }: Params) {
         console.error("[estado] constancia de reapertura", e);
         return null;
       });
+    }
+
+    // Responsable = quien toma la orden: el primero que la pasa a En Proceso.
+    if (estadoNormalizado === "En Proceso") {
+      await tomarSiNoTieneResponsable(ordenRecordId, { id: session.user.userId ?? null, nombre: session.user.nombre ?? null, email: session.user.email ?? null });
     }
 
     return NextResponse.json({ success: true, data: { ...result, garantias, reapertura } });
