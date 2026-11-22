@@ -181,6 +181,12 @@ export interface NuevaOrdenInput {
     accesorios?: string | null;
     ingresaPor: string;
   };
+  /** Rediseño R6: la orden nace de «Regresó el equipo» (enlazada a la anterior). */
+  enlaces?: {
+    ordenAnteriorId?: string | null;
+    tipoRegreso?: string | null;
+    fichaEquipoIds?: string[];
+  } | null;
 }
 
 export interface OrdenCreadaResult {
@@ -310,6 +316,13 @@ export interface OrdenDetalle {
   documentos: AirtableAttachment[];
   cotizacionId: string;
   cotizacionCodigo: string;
+  /** Rediseño R6: de qué orden nace (si el equipo regresó) y qué regresos tuvo. */
+  regreso?: {
+    ordenAnteriorId: string | null;
+    ordenAnteriorCodigo: string;
+    tipo: string;
+    regresos: Array<{ id: string; codigo: string }>;
+  };
   /** Fecha (YYYY-MM-DD) del próximo mantenimiento, si se ha impreso una etiqueta para esta orden. Vive en la tabla "Mantenimientos" (ver fetchMantenimientoPorOrden), no en un campo propio de la orden. */
   proximoMantenimiento: string;
 }
@@ -1488,6 +1501,7 @@ export const createOrdenReparacion = async ({
   clienteId,
   nuevoCliente,
   orden,
+  enlaces,
 }: NuevaOrdenInput): Promise<OrdenCreadaResult> => {
   const equipo = orden.equipo.trim();
   const ingresaPor = orden.ingresaPor.trim();
@@ -1530,12 +1544,30 @@ export const createOrdenReparacion = async ({
   if (accesorios) {
     fields.Accesorios = accesorios;
   }
+  if (enlaces?.ordenAnteriorId) fields["Orden anterior"] = [enlaces.ordenAnteriorId];
+  if (enlaces?.tipoRegreso) fields["Tipo de regreso"] = enlaces.tipoRegreso;
+  if (enlaces?.fichaEquipoIds?.length) fields["Ficha del equipo"] = enlaces.fichaEquipoIds;
 
   const createdOrden = await createRecord(AIRTABLE_TABLES.ordenes, fields, client);
   return {
     ok: true,
     ordenId: safeString(createdOrden.fields?.["ID"], createdOrden.id),
     airtableRecordId: createdOrden.id,
+  };
+};
+
+// Rediseño R6: enlaces de «Regresó el equipo» (los códigos vienen de lookups).
+const textos = (v: unknown): string[] => (Array.isArray(v) ? v.map((x) => (typeof x === "string" ? x : "")) : []);
+const leerRegreso = (f: Record<string, unknown>): NonNullable<OrdenDetalle["regreso"]> => {
+  const anterior = textos(f["Orden anterior"]).filter((x) => x.startsWith("rec"));
+  const regresoIds = textos(f["Regresos"]).filter((x) => x.startsWith("rec"));
+  const codigos = textos(f["Regresos códigos"]);
+  const tipo = f["Tipo de regreso"];
+  return {
+    ordenAnteriorId: anterior[0] ?? null,
+    ordenAnteriorCodigo: textos(f["Orden anterior código"])[0] ?? "",
+    tipo: typeof tipo === "string" ? tipo : tipo && typeof tipo === "object" && "name" in tipo ? String((tipo as { name: unknown }).name ?? "") : "",
+    regresos: regresoIds.map((id, i) => ({ id, codigo: codigos[i] || "Orden nueva" })),
   };
 };
 
@@ -1623,6 +1655,7 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
           motivoSinCobro: typeof f["Motivo sin cobro"] === "string" ? (f["Motivo sin cobro"] as string) : "",
         }
       : null,
+    regreso: leerRegreso(f),
   };
 
   // Historial: preferir IDs vinculados desde la orden
@@ -3338,6 +3371,8 @@ export const createHistorialEntrada = async ({
   creadoPorNombre,
   creadoPorEmail,
   creadoPorUsuarioId,
+  tipoActividad,
+  visibilidad,
 }: {
   ordenRecordId: string;
   avanceTexto?: string;
@@ -3347,6 +3382,10 @@ export const createHistorialEntrada = async ({
   creadoPorNombre?: string | null;
   creadoPorEmail?: string | null;
   creadoPorUsuarioId?: string | null;
+  /** Rediseño: clase de entrada en la Actividad ("Regreso", "Reapertura"…). */
+  tipoActividad?: string | null;
+  /** Rediseño: "Interna" o "Al cliente". */
+  visibilidad?: string | null;
 }): Promise<HistorialEstado> => {
   const client = getClient();
   const url = `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.historial)}`;
@@ -3400,6 +3439,8 @@ export const createHistorialEntrada = async ({
           if (creadoPorNombre) fields["Creado por Nombre"] = creadoPorNombre;
           if (creadoPorEmail) fields["Creado por Email"] = creadoPorEmail;
           if (creadoPorUsuarioId) fields["Creado por Usuario ID"] = creadoPorUsuarioId;
+          if (tipoActividad) fields["Tipo de actividad"] = tipoActividad;
+          if (visibilidad) fields["Visibilidad"] = visibilidad;
         }
 
         const res = await fetch(url, {
