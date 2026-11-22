@@ -16,6 +16,9 @@ import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
 import { buildAbandonmentWhatsAppMessage } from "@/lib/tecnicos/orders/abandonmentWhatsApp";
 import { buildWhatsAppUrl } from "@/lib/tecnicos/whatsapp";
 import { CuentaCard } from "@/components/cuenta/CuentaCard";
+import { AsistentePanel, type Pestana } from "@/components/asistente/AsistentePanel";
+import { GuardarSolucionCard } from "@/components/asistente/GuardarSolucionCard";
+import { Destello } from "@/components/asistente/ui";
 import type { DocumentoCuenta } from "@/lib/estado-cuenta/tarjeta";
 import { PresupuestoCard } from "@/components/tecnicos/ordenes/PresupuestoCard";
 import type { CuentaUnificada } from "@/types/cuenta-unificada";
@@ -689,6 +692,10 @@ export function OrdenDetalleClient() {
   const [bajaError, setBajaError] = useState<string | null>(null);
   const [userRol, setUserRol] = useState("");
   const [userNombre, setUserNombre] = useState("");
+  // Asistente de la orden (punto 11B): se abre solo al tocar «Asistente».
+  const [asistente, setAsistente] = useState<{ abierto: boolean; pestana: Pestana }>({ abierto: false, pestana: "orden" });
+  // Recién pasó a Completado en esta pantalla: la IA propone guardar la solución.
+  const [recienCompletado, setRecienCompletado] = useState(false);
 
   const abandonmentStatus = useMemo(
     () => (orden ? getAbandonmentStatus(orden) : getAbandonmentStatus({})),
@@ -1033,6 +1040,17 @@ export function OrdenDetalleClient() {
     }
   };
 
+  // Abre el cobro con el saldo ya puesto (se puede cambiar para pagos en
+  // varias partes). Lo usan la tarjeta Cuenta y el Asistente.
+  const abrirRegistrarPago = () => {
+    setAbonoError(null);
+    setAbonoMessage(null);
+    const saldo = cuentaUnificada?.saldo ?? 0;
+    if (saldo > 0) setAbonoMonto(saldo.toFixed(2));
+    cargarSaldoAFavorCliente();
+    setOpenAbonoModal(true);
+  };
+
   const handleEstadoChange = async (nuevoEstado: EstadoOrden) => {
     if (!orden || estadoSaving) return;
     if (nuevoEstado === orden.estadoActual) {
@@ -1069,6 +1087,7 @@ export function OrdenDetalleClient() {
             }
           : prev
       );
+      if (nuevoEstado === "Completado") setRecienCompletado(true);
       // Garantía SUPER GEEK (punto 20): la pieza salió o volvió al inventario.
       const g = json.data?.garantias as { salidas?: string[]; vueltas?: string[]; reclamos?: string[]; avisos?: string[] } | undefined;
       const partes = [
@@ -1625,6 +1644,14 @@ export function OrdenDetalleClient() {
                         <a href={`/api/tecnicos/ordenes/${encodeURIComponent(id ?? "")}/entrega/pdf`} target="_blank" rel="noreferrer" className="font-semibold text-[var(--sg-lime)] hover:underline">PDF</a>
                       </div>
                     ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setAsistente((a) => ({ ...a, abierto: true }))}
+                      className="inline-flex h-[28px] w-52 items-center justify-center gap-1.5 rounded-full border border-[var(--sg-lime)]/45 px-3.5 text-xs font-bold uppercase tracking-wide text-[var(--sg-lime)] transition hover:bg-[var(--sg-lime-soft)]"
+                    >
+                      <Destello size={14} />
+                      Asistente
+                    </button>
                     {(estadoSaving || estadoMessage || estadoError) && (
                       <div className="min-h-4 text-[11px] text-[var(--sg-text-muted)]">
                         {estadoSaving && <span className="text-[var(--sg-lime)]">Guardando...</span>}
@@ -1636,6 +1663,10 @@ export function OrdenDetalleClient() {
                 </div>
               </div>
             </section>
+
+            {orden.estadoActual === "Completado" && (
+              <GuardarSolucionCard ordenId={orden.recordId} estadoOrden={orden.estadoActual} recienCompletado={recienCompletado} />
+            )}
 
             {abandonmentStatus.level !== "none" && (
               <section
@@ -2119,16 +2150,7 @@ export function OrdenDetalleClient() {
                 cargando={cuentaUnificadaLoading}
                 onCuentaCambiada={() => void refreshOrdenDetalleFinanzas()}
                 onVerComprobante={(abonoId, adjunto) => openComprobanteViewer(abonoId, adjunto)}
-                onRegistrarPago={() => {
-                  setAbonoError(null);
-                  setAbonoMessage(null);
-                  // Abre el cobro con el saldo ya puesto (se puede cambiar
-                  // para pagos en varias partes).
-                  const saldo = cuentaUnificada?.saldo ?? 0;
-                  if (saldo > 0) setAbonoMonto(saldo.toFixed(2));
-                  cargarSaldoAFavorCliente();
-                  setOpenAbonoModal(true);
-                }}
+                onRegistrarPago={abrirRegistrarPago}
               />
             </section>
           </aside>
@@ -2477,6 +2499,24 @@ export function OrdenDetalleClient() {
                 onClose={() => setShowMantenimientoModal(false)}
               />
             )}
+
+            <AsistentePanel
+              abierto={asistente.abierto}
+              pestana={asistente.pestana}
+              onPestana={(pestana) => setAsistente((a) => ({ ...a, pestana }))}
+              onCerrar={() => setAsistente((a) => ({ ...a, abierto: false }))}
+              ordenId={orden.recordId}
+              codigo={orden.idVisible}
+              equipo={orden.equipo}
+              ingresaPor={orden.ingresaPor}
+              telefono={orden.telefono}
+              usuario={userNombre}
+              onRegistrarPago={abrirRegistrarPago}
+              onIrA={(seccion) => {
+                setTimeout(() => document.getElementById(seccion === "cuenta" ? "orden-cuenta" : "orden-presupuesto")?.scrollIntoView({ behavior: "smooth", block: "start" }), 250);
+              }}
+              onNotaInterna={(notaInterna) => setOrden((prev) => (prev ? { ...prev, notaInterna } : prev))}
+            />
           </div>
         )}
     </div>
