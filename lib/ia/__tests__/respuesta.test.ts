@@ -57,10 +57,10 @@ assert(mensajeErrorIA(429).includes("ocupada"), "429 → ocupada");
 assert(mensajeErrorIA(400, "Your credit balance is too low").includes("saldo"), "sin crédito → revisar Billing");
 assert(mensajeErrorIA(500).includes("Intenta"), "otro error → intentar de nuevo");
 
-// ── Sitios de confianza aprobados por el dueño (21-nov) ─────────────────────
+// ── Sitios de confianza aprobados por el dueño (21-nov; Microsoft el 22-nov) ─
 assert(
-  [...DOMINIOS_TECNICO].sort().join(",") === ["acer.com", "apple.com", "asus.com", "dell.com", "hp.com", "ifixit.com", "lenovo.com"].join(","),
-  "el técnico experto busca solo en HP, Lenovo, Dell, Asus, Acer, Apple e iFixit",
+  [...DOMINIOS_TECNICO].sort().join(",") === ["acer.com", "apple.com", "asus.com", "dell.com", "hp.com", "ifixit.com", "lenovo.com", "microsoft.com"].join(","),
+  "el técnico experto busca solo en HP, Lenovo, Dell, Asus, Acer, Apple, iFixit y Microsoft (Windows, desde el 22-nov)",
 );
 
 // ── Un solo motor: nadie más llama a la API de Claude ───────────────────────

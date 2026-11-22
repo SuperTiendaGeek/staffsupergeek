@@ -16,7 +16,11 @@ export type BloqueRespuesta = {
 
 export type FuenteWeb = { url: string; titulo: string };
 
-/** Sitios de confianza del técnico experto (aprobados por el dueño el 21-nov-2026). */
+/**
+ * Sitios de confianza del técnico experto (aprobados por el dueño el 21-nov-2026;
+ * Microsoft sumado el 22-nov para las fallas de Windows). Cada dominio cubre
+ * sus subdominios (hp.com → support.hp.com, microsoft.com → support.microsoft.com).
+ */
 export const DOMINIOS_TECNICO = [
   "hp.com",
   "lenovo.com",
@@ -25,6 +29,7 @@ export const DOMINIOS_TECNICO = [
   "acer.com",
   "apple.com",
   "ifixit.com",
+  "microsoft.com",
 ] as const;
 
 /** Une el texto de la respuesta (las citas parten el texto en varios bloques). */
