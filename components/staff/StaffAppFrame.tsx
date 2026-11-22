@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   BellRing,
   BookOpen,
+  BookMarked,
   CalendarClock,
   ChevronLeft,
   ChevronRight,
@@ -86,6 +87,7 @@ const tecnicosSubItems: SubNavItem[] = [
   { href: "/tecnicos/mantenimientos", label: "Mantenimientos", icon: BellRing },
   { href: "/tecnicos/clientes", label: "Clientes", icon: UserRound },
   { href: "/tecnicos/garantias", label: "Garantías", icon: ShieldCheck },
+  { href: "/tecnicos/manual-tecnico", label: "Manual técnico", icon: BookMarked },
   { href: "/tecnicos/catalogo-repuestos", label: "Repuestos", icon: Package },
   { href: "/tecnicos/catalogo-servicios", label: "Servicios", icon: Cog },
   { href: "/tecnicos/productos-digitales", label: "Productos Digitales", icon: KeyRound },
