@@ -1,3 +1,4 @@
+import { cuentaComoMovimiento } from "@/lib/tecnicos/alertas/reglas";
 import { AIRTABLE_TABLES, loadAirtableEnv } from "../config/airtable";
 import { reservarSiguienteIdAbono } from "@/lib/operaciones/airtable";
 import { normalizeCedula } from "@/lib/clientes/normalizeCedula";
@@ -3481,6 +3482,16 @@ export const createHistorialEntrada = async ({
 
   if (!data) {
     throw lastError ?? new Error("No se pudo crear la entrada de historial");
+  }
+
+  // Rediseño R10: lo que hace una persona en la orden reinicia el reloj de las
+  // alertas («Último movimiento»). Ver contar como movimiento en alertas/reglas.
+  if ((creadoPorUsuarioId || creadoPorNombre) && cuentaComoMovimiento(tipoActividad)) {
+    await fetch(`${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.ordenes)}/${encodeURIComponent(ordenRecordId)}`, {
+      method: "PATCH",
+      headers: { ...client.headers },
+      body: JSON.stringify({ fields: { "Último movimiento": new Date().toISOString() } }),
+    }).catch((e) => console.warn("[historial] último movimiento", e));
   }
 
   return mapHistorialRecord(data, ordenRecordId);

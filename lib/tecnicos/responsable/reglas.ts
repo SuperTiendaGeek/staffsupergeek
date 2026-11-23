@@ -21,10 +21,18 @@ export function primerNombre(nombre: string): string {
   return nombre.trim().split(/\s+/)[0] ?? "";
 }
 
+/** ¿Tiene la app Técnicos? En Airtable «Apps Permitidas» guarda la etiqueta «Técnicos» (con tilde). */
+export function usaTecnicos(apps: string[]): boolean {
+  return apps.some((a) => {
+    const x = a.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+    return x === "tecnicos";
+  });
+}
+
 /** Personas que pueden ser responsables, en orden alfabético. */
 export function opcionesResponsable(usuarios: Usuario[]): OpcionResponsable[] {
   return usuarios
-    .filter((u) => u.activo && (u.appsPermitidas.includes("tecnicos") || isAdministratorRole(u.rol)))
+    .filter((u) => u.activo && (usaTecnicos(u.appsPermitidas) || isAdministratorRole(u.rol)))
     .map((u) => {
       const nombre = (u.nombre || u.email || "Sin nombre").trim();
       return { id: u.id, nombre, iniciales: iniciales(nombre) };
