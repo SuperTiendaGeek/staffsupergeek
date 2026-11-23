@@ -4,7 +4,7 @@
 //
 // El técnico arma aquí lo que le va a proponer al cliente —servicios,
 // repuestos y productos digitales— SIN comprometer nada: no se reserva ningún
-// repuesto, no se asigna ninguna licencia y el Resumen financiero no cambia.
+// repuesto, no se asigna ninguna licencia y la Cuenta no cambia.
 //
 // Aprobado = cargado. Cuando el cliente aprueba desde el enlace, lo aprobado se
 // carga solo a la orden en la misma respuesta (enlace.ts). Si aprueba en la
@@ -28,7 +28,8 @@ import { EntregarLicencia } from "./EntregarLicencia";
 import { PedidoAparteDialog } from "./PedidoAparteDialog";
 import { EstadoTrabajo } from "./EstadoTrabajo";
 import { CopyableSKU } from "@/components/ui/copyable-sku";
-import type { TrabajoVisible } from "@/lib/tecnicos/presupuesto/trabajo";
+import { resumenTrabajos, type TrabajoVisible } from "@/lib/tecnicos/presupuesto/trabajo";
+import type { ResumenPresupuesto } from "@/lib/tecnicos/orden/etapas";
 import { PIEZAS_RETIRADAS } from "@/lib/garantias/reglas";
 import { fechaCorta, textoOrigen, textoPlazo, type OrigenGarantia } from "@/lib/garantias/plazos";
 import { AvisoNovedadVenta, cerrarNovedadesVendidas, type EstadoAvisoNovedad } from "@/components/shipping-v2/novedades/AvisoNovedadVenta";
@@ -131,7 +132,22 @@ function fechaCortaEc(iso: string) {
   return Number.isFinite(t) ? new Intl.DateTimeFormat("es-EC", { timeZone: "America/Guayaquil", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(t)) : "";
 }
 
-function EnlaceCliente({ ordenId, hayLineas }: { ordenId: string; hayLineas: boolean }) {
+function fechaDiaEc(iso: string) {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) ? new Intl.DateTimeFormat("es-EC", { timeZone: "America/Guayaquil", day: "numeric", month: "short" }).format(new Date(t)).replace(".", "") : "";
+}
+
+const BTN_SM = "inline-flex h-[26px] items-center justify-center rounded-[var(--sg-radius-sm)] border px-2.5 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50";
+const BTN_SM_SEC = `${BTN_SM} border-[var(--sg-border)] bg-[var(--sg-card)] text-[var(--sg-text-secondary)] hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]`;
+const BTN_SM_PRI = `${BTN_SM} border-[var(--sg-lime)] bg-[var(--sg-lime)] text-[var(--sg-text-on-accent)] hover:brightness-105`;
+
+/**
+ * Enlace del cliente en la cabecera de «Trabajos» (rediseño R1, tablero 1):
+ * «Enlace · vigente hasta 29 nov» (abre el enlace como lo ve el cliente),
+ * Copiar · WhatsApp · PDF; vencido → «Renovar y copiar». Copiar o abrir
+ * WhatsApp marca «Presupuesto enviado» (las etapas pasan a esperar al cliente).
+ */
+function EnlaceCliente({ ordenId, hayLineas, onEnviado }: { ordenId: string; hayLineas: boolean; onEnviado?: (iso: string) => void }) {
   const [info, setInfo] = useState<InfoEnlaceUI | null>(null);
   const [ocupado, setOcupado] = useState(false);
   const [copiado, setCopiado] = useState(false);
@@ -144,51 +160,67 @@ function EnlaceCliente({ ordenId, hayLineas }: { ordenId: string; hayLineas: boo
     return () => { vivo = false; };
   }, [base]);
 
-  async function crear(renovar: boolean) {
+  async function crear(renovar: boolean): Promise<InfoEnlaceUI | null> {
     setOcupado(true); setError(null);
     try {
       const r = await fetch(`${base}/enlace`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ renovar }) });
       const j = await r.json();
-      if (!j.success) { setError(j.error ?? "No se pudo crear el enlace"); return; }
+      if (!j.success) { setError(j.error ?? "No se pudo crear el enlace"); return null; }
       setInfo(j.data);
-    } catch { setError("Error de red"); }
+      return j.data as InfoEnlaceUI;
+    } catch { setError("Error de red"); return null; }
     finally { setOcupado(false); }
   }
 
-  async function copiar() {
-    if (!info?.url) return;
-    try { await navigator.clipboard.writeText(info.url); setCopiado(true); setTimeout(() => setCopiado(false), 2000); } catch { setError("No se pudo copiar; selecciona el enlace a mano."); }
+  function avisarEnvio(medio: "copiado" | "whatsapp") {
+    fetch(`${base}/enlace`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enviado: medio }) })
+      .then((r) => r.json())
+      .then((j) => { if (j.success && j.data?.enviado) onEnviado?.(j.data.enviado as string); })
+      .catch(() => {});
+  }
+
+  async function copiar(url = info?.url) {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+      avisarEnvio("copiado");
+    } catch { setError("No se pudo copiar; ábrelo y copia la dirección."); }
   }
 
   if (!hayLineas) return null;
-  const vigente = info?.estado === "vigente";
+  const estado = info?.url ? info.estado : "sin_enlace";
+  const etiqueta = estado === "vigente" ? `vigente hasta ${fechaDiaEc(info!.vence)}` : estado === "vencido" ? "venció" : estado === "bloqueado" ? "bloqueado 30 min" : "";
+  const tono = estado === "vigente" ? "text-[var(--sg-text-secondary)]" : estado === "vencido" ? "text-[var(--sg-warning)]" : "text-[var(--sg-danger)]";
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-xs">
-      <div className="min-w-0">
-        <p className="font-semibold text-[var(--sg-text-primary)]">Enlace para el cliente</p>
-        <p className="text-[11px] text-[var(--sg-text-muted)]">
-          {!info || info.estado === "sin_enlace"
-            ? "El cliente revisa y aprueba desde su celular, sin cuenta. Si cambias algo, el mismo enlace le pide aprobar solo el cambio."
-            : info.estado === "vencido" ? "Venció: renuévalo antes de volver a enviarlo (es el mismo enlace)."
-            : info.estado === "bloqueado" ? "Bloqueado 30 min por intentos fallidos de cédula."
-            : `Vigente hasta ${fechaCortaEc(info.vence)}.`}
-        </p>
-        {error && <p className="text-[11px] text-[var(--sg-danger)]">{error}</p>}
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        {info?.url ? (
-          <>
-            <button type="button" onClick={copiar} className={BTN_SEC}>{copiado ? "¡Copiado!" : "Copiar enlace"}</button>
-            {info.whatsapp && vigente && <a href={info.whatsapp} target="_blank" rel="noopener noreferrer" className={BTN_SEC}>WhatsApp</a>}
-            <a href={info.url} target="_blank" rel="noopener noreferrer" className={BTN_SEC}>Ver como cliente</a>
-            {!vigente && <button type="button" disabled={ocupado} onClick={() => crear(true)} className={BTN_PRI}>{ocupado ? "Renovando…" : "Renovar 7 días"}</button>}
-          </>
-        ) : (
-          <button type="button" disabled={ocupado} onClick={() => crear(false)} className={BTN_PRI}>{ocupado ? "Creando…" : "Crear enlace"}</button>
-        )}
-        <a href={`${base}/pdf`} target="_blank" rel="noopener noreferrer" className={BTN_SEC} title="Incluye el enlace y su código QR al pie">PDF</a>
-      </div>
-    </div>
+    <span className="flex flex-wrap items-center gap-1.5">
+      {error && <span className="text-[11px] text-[var(--sg-danger)]">{error}</span>}
+      {info?.url && (
+        <a href={info.url} target="_blank" rel="noopener noreferrer" title={estado === "bloqueado" ? "Bloqueado por intentos fallidos de cédula. Ábrelo como el cliente." : "Abrir el enlace como lo ve el cliente"}
+          className="mr-0.5 text-xs text-[var(--sg-text-muted)] transition hover:text-[var(--sg-text-primary)]">
+          Enlace · <span className={tono}>{etiqueta}</span>
+        </a>
+      )}
+      {estado === "sin_enlace" ? (
+        <button type="button" disabled={ocupado} onClick={() => void crear(false)} className={BTN_SM_PRI}
+          title="El cliente revisa y aprueba desde su celular, sin cuenta. Si cambias algo, el mismo enlace le pide aprobar solo el cambio.">
+          {ocupado ? "Creando…" : "Crear enlace"}
+        </button>
+      ) : estado === "vencido" ? (
+        <button type="button" disabled={ocupado} onClick={async () => { const d = await crear(true); if (d?.url) await copiar(d.url); }} className={BTN_SM_PRI} title="Le da 7 días más (es el mismo enlace)">
+          {ocupado ? "Renovando…" : copiado ? "¡Copiado!" : "Renovar y copiar"}
+        </button>
+      ) : (
+        <>
+          <button type="button" onClick={() => void copiar()} className={BTN_SM_SEC}>{copiado ? "¡Copiado!" : "Copiar"}</button>
+          {info?.whatsapp && estado === "vigente" && (
+            <a href={info.whatsapp} target="_blank" rel="noopener noreferrer" onClick={() => avisarEnvio("whatsapp")} className={BTN_SM_SEC}>WhatsApp</a>
+          )}
+        </>
+      )}
+      <a href={`${base}/pdf`} target="_blank" rel="noopener noreferrer" className={BTN_SM_SEC} title="Incluye el enlace y su código QR al pie">PDF</a>
+    </span>
   );
 }
 
@@ -630,7 +662,7 @@ function puedePedidoAparte(l: LineaPresupuesto, claveCompra: string | undefined)
 }
 
 export function PresupuestoCard({
-  ordenId, onCargado, refrescar = 0, productosDigitales = [], esAdmin = false, onProductoDigitalCambiado, onActividad,
+  ordenId, onCargado, refrescar = 0, productosDigitales = [], esAdmin = false, onProductoDigitalCambiado, onActividad, onResumen, onEnviado,
 }: {
   ordenId: string;
   onCargado: () => void | Promise<void>;
@@ -647,6 +679,10 @@ export function PresupuestoCard({
   onProductoDigitalCambiado?: () => void | Promise<void>;
   /** Rediseño R3: se anotó algo en la Actividad (avance de un trabajo). */
   onActividad?: () => void;
+  /** Rediseño R1: resumen para la barra de etapas de la cabecera (sin otra consulta). */
+  onResumen?: (r: ResumenPresupuesto) => void;
+  /** Rediseño R1: se copió el enlace o se abrió WhatsApp («Presupuesto enviado»). */
+  onEnviado?: (iso: string) => void;
 }) {
   const [lineas, setLineas] = useState<LineaPresupuesto[]>([]);
   const [pedidos, setPedidos] = useState<Record<string, InfoPedido>>({});
@@ -706,6 +742,22 @@ export function PresupuestoCard({
     } catch { setError("Error de red"); }
     finally { setOcupado(null); }
   }
+  // Rediseño R1: la cabecera muestra «Aprobado 6 nov · En trabajo 2 de 3 hechos · Qué sigue».
+  const [cargado, setCargado] = useState(false);
+  useEffect(() => {
+    if (!cargado || !onResumen) return;
+    const aprobadas = lineas.filter((l) => l.estado === "Aprobada" || l.estado === "Cargada");
+    const fechas = aprobadas.map((l) => l.fechaAprobacion).filter(Boolean).sort();
+    const vis = Object.values(trabajos);
+    onResumen({
+      lineas: lineas.filter((l) => l.estado !== "Rechazada").length,
+      aprobadas: aprobadas.length,
+      fechaAprobacion: fechas[0] ?? null,
+      trabajos: resumenTrabajos(vis),
+      esperaRepuesto: vis.some((v) => v.estado === "En espera" && v.motivo === "Repuesto"),
+      esperaPago: vis.some((v) => v.estado === "En espera" && v.motivo === "Pago del cliente"),
+    });
+  }, [cargado, lineas, trabajos, onResumen]);
   const [resultados, setResultados] = useState<Resultado[] | null>(null);
   const [detalle, setDetalle] = useState<{ lineaId: string; prioridad: Prioridad; notaCliente: string; alternativaDe: string } | null>(null);
   const montado = useRef(true);
@@ -717,7 +769,7 @@ export function PresupuestoCard({
       const j = await r.json();
       if (!montado.current) return;
       if (!j.success) { setError(j.error ?? "No se pudo cargar el presupuesto"); return; }
-      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setCompras(j.data.compras ?? {}); setTrabajos(j.data.trabajos ?? {}); setSkus(j.data.skus ?? {}); setPuedeComprar(j.data.puedeComprar === true); setReversas(j.data.reversas ?? {}); setProveedores(j.data.proveedores ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setCargosSueltos(j.data.cargosSinPresupuesto ?? null); setError(null);
+      setLineas(j.data.lineas); setPedidos(j.data.pedidos ?? {}); setCompras(j.data.compras ?? {}); setTrabajos(j.data.trabajos ?? {}); setSkus(j.data.skus ?? {}); setPuedeComprar(j.data.puedeComprar === true); setReversas(j.data.reversas ?? {}); setProveedores(j.data.proveedores ?? {}); setEstado(j.data.estado); setTotales(j.data.totales); setCargosSueltos(j.data.cargosSinPresupuesto ?? null); setError(null); setCargado(true);
       setSeleccion((prev) => new Set([...prev].filter((id) => (j.data.lineas as LineaPresupuesto[]).some((l) => l.id === id && (l.estado === "Propuesta" || l.estado === "Aprobada")))));
     } catch { if (montado.current) setError("Error de red al cargar el presupuesto"); }
     finally { if (montado.current) setCargando(false); }
@@ -828,20 +880,19 @@ export function PresupuestoCard({
 
   return (
     <section className="relative isolate z-20 space-y-3 overflow-visible rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--sg-divider)] pb-3">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Presupuesto</p>
-          <p className="mt-0.5 text-sm font-semibold text-[var(--sg-text-primary)]">{PRESUPUESTO_TEXTO[estado]}</p>
-          <p className="text-[11px] text-[var(--sg-text-muted)]">Armar el presupuesto no reserva repuestos ni afecta la cuenta. Lo que el cliente aprueba (por el enlace o en tienda) suma solo al Resumen financiero.</p>
-        </div>
-        <div className="flex items-start gap-2">
-          {totales && (totales.propuesto > 0 || totales.aprobado > 0) && (
-            <div className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-1.5 text-right text-xs">
-              {totales.propuesto > 0 && <p className="text-[var(--sg-text-secondary)]">Propuesto <span className="font-bold tabular-nums text-[var(--sg-text-primary)]">{mon(totales.propuesto)}</span></p>}
-              {totales.aprobado > 0 && <p className="text-[var(--sg-text-secondary)]">Aprobado <span className="font-bold tabular-nums text-[var(--sg-success)]">{mon(totales.aprobado)}</span></p>}
-              {totales.pendienteDeCargar > 0 && <p className="text-[11px] text-[var(--sg-warning)]" title="Ya suma al Resumen financiero. La factura o el recibo esperan a que exista el artículo.">{mon(totales.pendienteDeCargar)} sin artículo · no facturable aún</p>}
-            </div>
-          )}
+      {/* Rediseño R1 (tablero 1): «Trabajos», compacto, sin párrafo de explicación. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--sg-divider)] pb-2.5">
+        <h2 className="text-sm font-bold text-[var(--sg-text-primary)]">Trabajos</h2>
+        {/* El avance general ya está en las etapas de la cabecera; aquí solo lo que no se ve allí. */}
+        {estado === "rechazado" && <span className="text-xs font-semibold text-[var(--sg-danger)]">{PRESUPUESTO_TEXTO[estado]}</span>}
+        {totales && (totales.propuesto > 0 || totales.aprobado > 0) && (
+          <span className="flex flex-wrap items-center gap-x-2.5 text-xs text-[var(--sg-text-secondary)]">
+            {totales.propuesto > 0 && <span>Propuesto <b className="tabular-nums text-[var(--sg-text-primary)]">{mon(totales.propuesto)}</b></span>}
+            {totales.aprobado > 0 && <span>Aprobado <b className="tabular-nums text-[var(--sg-success)]">{mon(totales.aprobado)}</b></span>}
+            {totales.pendienteDeCargar > 0 && <span className="text-[11px] text-[var(--sg-warning)]" title="Ya suma a la Cuenta. La factura o el recibo esperan a que exista el artículo.">{mon(totales.pendienteDeCargar)} sin artículo · no facturable aún</span>}
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-2">
           {lineas.some((l) => l.garantia === "Confirmada" && l.estado === "Cargada") && (
             <span className="self-center whitespace-nowrap text-[11px] text-[var(--sg-text-muted)]" title="Constancia NO tributaria de lo entregado en garantía, con su nueva garantía">
               Entrega en garantía:{" "}
@@ -850,11 +901,14 @@ export function PresupuestoCard({
               <a href={`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/garantia/pdf`} target="_blank" rel="noopener noreferrer" className="text-[var(--sg-lime)] hover:underline">PDF</a>
             </span>
           )}
-          {!agregando && <button type="button" onClick={() => setAgregando(true)} className={BTN_SEC}>+ Línea</button>}
+          {!cargando && <EnlaceCliente ordenId={ordenId} hayLineas={lineas.length > 0} onEnviado={onEnviado} />}
+          {!agregando && (
+            <button type="button" onClick={() => setAgregando(true)} className={BTN_SM_SEC} title="Proponer un servicio, repuesto o producto digital. No aparta repuestos ni cambia la Cuenta hasta que el cliente aprueba.">
+              + Línea
+            </button>
+          )}
         </div>
       </div>
-
-      {!cargando && <EnlaceCliente ordenId={ordenId} hayLineas={lineas.length > 0} />}
 
       {!cargando && cargosSueltos && cargosSueltos.total > 0 && (
         <p className="rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[11px] text-[var(--sg-text-muted)]">
@@ -862,8 +916,8 @@ export function PresupuestoCard({
             cargosSueltos.servicios ? `${cargosSueltos.servicios} servicio(s)` : "",
             cargosSueltos.repuestos ? `${cargosSueltos.repuestos} repuesto(s)` : "",
             cargosSueltos.digitales ? `${cargosSueltos.digitales} producto(s) digital(es)` : "",
-          ].filter(Boolean).join(", ")} sin línea en el presupuesto (se cargaron por fuera de él). Suman al Resumen financiero, pero no se
-          pueden quitar desde aquí: pídele al administrador que los pase al presupuesto.
+          ].filter(Boolean).join(", ")} cargados por fuera del presupuesto. Suman a la Cuenta; para quitarlos, el administrador
+          debe pasarlos al presupuesto.
         </p>
       )}
 
@@ -917,8 +971,8 @@ export function PresupuestoCard({
         <p className="text-sm text-[var(--sg-text-muted)]">Cargando presupuesto…</p>
       ) : lineas.length === 0 ? (
         !agregando && (
-          <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-3 text-sm text-[var(--sg-text-secondary)]">
-            Todavía no hay presupuesto. Agrega servicios, repuestos o productos digitales para proponérselos al cliente.
+          <p className="rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-xs text-[var(--sg-text-muted)]">
+            Sin trabajos todavía.
           </p>
         )
       ) : (
@@ -1225,7 +1279,7 @@ export function PresupuestoCard({
       {resultados && (
         <div className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-panel)] p-3 text-xs">
           <p className="mb-1 font-bold text-[var(--sg-text-primary)]">
-            {resultados.filter((r) => r.cargada).length} de {resultados.length} líneas con su artículo o servicio listo (todas suman al Resumen financiero)
+            {resultados.filter((r) => r.cargada).length} de {resultados.length} líneas con su artículo o servicio listo (todas suman a la Cuenta)
           </p>
           <ul className="space-y-0.5">
             {resultados.map((r) => (

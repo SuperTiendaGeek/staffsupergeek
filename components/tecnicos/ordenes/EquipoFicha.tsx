@@ -95,7 +95,7 @@ export function EquipoFicha({ ordenId, onCambio }: { ordenId: string; onCambio?:
       <div className="flex items-start gap-2">
         <svg className="mt-0.5 h-4 w-4 shrink-0 text-[var(--sg-text-muted)]" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="8" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M1 13h14" stroke="currentColor" strokeWidth="1.3" /></svg>
         <div className="min-w-0 flex-1">
-          <p className={etiqueta}>Equipo</p>
+          {/* R1: la tarjeta ya se titula «Equipo»; aquí va directo el nombre. */}
           {f ? (
             <div className="flex items-start gap-1.5">
               <div className="min-w-0 flex-1">

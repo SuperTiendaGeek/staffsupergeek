@@ -318,6 +318,9 @@ export interface OrdenDetalle {
   documentos: AirtableAttachment[];
   cotizacionId: string;
   cotizacionCodigo: string;
+  /** Rediseño R1: cuándo se avisó al cliente que retire y cuándo se le envió el presupuesto (ISO). */
+  clienteAvisado?: string | null;
+  presupuestoEnviado?: string | null;
   /** Rediseño R6: de qué orden nace (si el equipo regresó) y qué regresos tuvo. */
   regreso?: {
     ordenAnteriorId: string | null;
@@ -1659,6 +1662,8 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
         }
       : null,
     regreso: leerRegreso(f),
+    clienteAvisado: typeof f["Cliente avisado"] === "string" ? (f["Cliente avisado"] as string) : null,
+    presupuestoEnviado: typeof f["Presupuesto enviado"] === "string" ? (f["Presupuesto enviado"] as string) : null,
   };
 
   // Historial: preferir IDs vinculados desde la orden

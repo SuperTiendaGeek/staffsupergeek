@@ -8,6 +8,8 @@ import "server-only";
 import { ids, porIds } from "@/lib/estado-cuenta/airtable";
 import { AIRTABLE_TABLES, loadAirtableEnv } from "@/lib/tecnicos/config/airtable";
 import { createHistorialEntrada } from "@/lib/tecnicos/airtable";
+import { listPortalUsers } from "@/lib/airtable";
+import { opcionesResponsable, revisarAsignacion, textoAsignacion, type OpcionResponsable } from "./reglas";
 
 export const CAMPO_RESPONSABLE = "Responsable";
 
@@ -48,4 +50,42 @@ export async function tomarSiNoTieneResponsable(ordenId: string, usuario: Usuari
     console.error("[responsable] tomar", e);
     return false;
   }
+}
+
+// ─── Selector de la cabecera (rediseño R1) ──────────────────────────────────
+
+export class ErrorResponsable extends Error {
+  constructor(message: string, readonly status = 400) { super(message); }
+}
+
+async function opciones(): Promise<OpcionResponsable[]> {
+  return opcionesResponsable(await listPortalUsers());
+}
+
+export async function leerResponsable(ordenId: string): Promise<{ actual: OpcionResponsable | null; opciones: OpcionResponsable[] }> {
+  const [id, lista] = await Promise.all([responsableDe(ordenId), opciones()]);
+  const actual = id ? lista.find((o) => o.id === id) ?? { id, nombre: "Usuario inactivo", iniciales: "?" } : null;
+  return { actual, opciones: lista };
+}
+
+/** Tomar la orden, pasarla a otra persona o dejarla sin responsable. */
+export async function asignarResponsable(o: { ordenId: string; body: unknown; usuario: Usuario }): Promise<{ actual: OpcionResponsable | null }> {
+  const lista = await opciones();
+  const r = revisarAsignacion(o.body, lista);
+  if (!r.ok) throw new ErrorResponsable(r.error);
+  const antes = await responsableDe(o.ordenId);
+  const nuevo = r.usuarioId ? lista.find((x) => x.id === r.usuarioId) ?? null : null;
+  if (antes === r.usuarioId) return { actual: nuevo };
+  await escribirResponsable(o.ordenId, r.usuarioId);
+  const quien = { id: o.usuario.id, nombre: o.usuario.nombre || o.usuario.email || "Alguien" };
+  await createHistorialEntrada({
+    ordenRecordId: o.ordenId,
+    avanceTexto: textoAsignacion(quien, nuevo),
+    tipoActividad: "Responsable",
+    visibilidad: "Interna",
+    creadoPorNombre: o.usuario.nombre,
+    creadoPorEmail: o.usuario.email,
+    creadoPorUsuarioId: o.usuario.id,
+  });
+  return { actual: nuevo };
 }
