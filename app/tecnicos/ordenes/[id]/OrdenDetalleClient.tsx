@@ -33,6 +33,8 @@ import { ReabrirOrdenDialog } from "@/components/tecnicos/ordenes/ReabrirOrdenDi
 import { esOrdenCerrada } from "@/lib/tecnicos/regreso/reglas";
 import { ResponsableSelector } from "@/components/tecnicos/ordenes/ResponsableSelector";
 import { MotivoIngresoCard } from "@/components/tecnicos/motivos/MotivoIngresoCard";
+import { AlertaFranja } from "@/components/tecnicos/alertas/AlertaFranja";
+import { avisarCambioAlertas } from "@/components/tecnicos/alertas/tipos";
 import { debeProponerMantenimiento, type MotivoCorto } from "@/lib/tecnicos/motivos/reglas";
 import { OrdenEtapas } from "@/components/tecnicos/ordenes/OrdenEtapas";
 import { Desplegable, OPCION_MENU } from "@/components/tecnicos/ordenes/Desplegable";
@@ -572,6 +574,8 @@ export function OrdenDetalleClient() {
   // y «Avisar al cliente» de la cabecera pide el borrador a la Actividad.
   const [resumen, setResumen] = useState<ResumenPresupuesto | null>(null);
   const [pedirMensaje, setPedirMensaje] = useState(0);
+  // Rediseño R10: «Anotar avance» de la franja de alerta.
+  const [pedirNota, setPedirNota] = useState(0);
   // Rediseño R7: chips del motivo (para el Asistente y para proponer el próximo mantenimiento al entregar).
   const [motivosOrden, setMotivosOrden] = useState<MotivoCorto[]>([]);
 
@@ -1225,7 +1229,7 @@ export function OrdenDetalleClient() {
                   ordenId={orden.recordId}
                   refrescar={`${actividadVersion}-${orden.estadoActual}`}
                   soloLectura={cerrada}
-                  onCambio={() => setActividadVersion((v) => v + 1)}
+                  onCambio={() => { setActividadVersion((v) => v + 1); avisarCambioAlertas(); }}
                 />
                 {(estadoSaving || estadoMessage || estadoError) && (
                   <span role="status" className="text-[11px] animate-[sg-entrada_160ms_ease-out]">
@@ -1292,6 +1296,20 @@ export function OrdenDetalleClient() {
                 <div className="h-[29px] border-t border-[#2C2D29]" aria-hidden="true" />
               )}
             </section>
+
+            {/* Rediseño R10 (tablero 10 C): la orden se está quedando atrás → una línea con la acción y «Posponer». */}
+            {!cerrada && (
+              <AlertaFranja
+                ordenId={orden.recordId}
+                refrescar={`${actividadVersion}-${orden.estadoActual}`}
+                onAccion={(accion) => {
+                  if (accion === "escribir") setPedirMensaje((n) => n + 1);
+                  else if (accion === "anotar") setPedirNota((n) => n + 1);
+                  else if (accion === "completar") handleEstadoChange("Completado");
+                  else document.getElementById("orden-presupuesto")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              />
+            )}
 
             {orden.estadoActual === "Completado" && (
               <GuardarSolucionCard ordenId={orden.recordId} estadoOrden={orden.estadoActual} recienCompletado={recienCompletado} />
@@ -1366,6 +1384,7 @@ export function OrdenDetalleClient() {
                   ordenId={orden.recordId}
                   refrescar={`${actividadVersion}-${orden.historial.length}-${orden.estadoActual}-${cuentaUnificada?.abonos?.length ?? 0}`}
                   pedirMensaje={pedirMensaje}
+                  pedirNota={pedirNota}
                   onGuardada={(enviado) => {
                     // Un aviso por WhatsApp con la orden Completada deja «Cliente avisado»: el botón pasa a «Entregar».
                     if (enviado) void fetchData({ showLoading: false, preserveError: true });

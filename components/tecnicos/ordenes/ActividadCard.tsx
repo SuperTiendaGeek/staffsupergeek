@@ -33,12 +33,14 @@ function Icono({ e }: { e: EntradaActividad }) {
 const seg = (activo: boolean) =>
   `h-[26px] px-2.5 text-[11px] font-bold transition-colors duration-150 ${activo ? "bg-[rgba(215,255,79,.12)] text-[#D7FF4F]" : "bg-[#1E1F1C] text-[#B5B5AE] hover:text-white"}`;
 
-export function ActividadCard({ ordenId, refrescar, pedirMensaje = 0, onGuardada }: {
+export function ActividadCard({ ordenId, refrescar, pedirMensaje = 0, pedirNota = 0, onGuardada }: {
   ordenId: string;
   /** Cambia cuando algo de afuera escribió en la actividad (estado, trabajos, pagos…). */
   refrescar?: string | number;
   /** Rediseño R1: «Avisar al cliente» de la cabecera sube este número → ✨ borrador Al cliente. */
   pedirMensaje?: number;
+  /** Rediseño R10: «Anotar avance» de la franja de alerta sube este número → nota interna con el cursor listo. */
+  pedirNota?: number;
   /** Se guardó una nota (con WhatsApp = aviso al cliente): la orden se relee. */
   onGuardada?: (enviado: boolean) => void;
 }) {
@@ -140,6 +142,14 @@ export function ActividadCard({ ordenId, refrescar, pedirMensaje = 0, onGuardada
     void pedirIA("redactar");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pedirMensaje]);
+
+  useEffect(() => {
+    if (!pedirNota) return;
+    setVisibilidad("Interna");
+    tarjeta.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setLlamado((n) => n + 1);
+    setTimeout(() => area.current?.focus(), 250);
+  }, [pedirNota]);
 
   async function guardarEdicion() {
     if (!editando) return;

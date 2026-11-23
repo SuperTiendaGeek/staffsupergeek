@@ -58,7 +58,7 @@ export class ErrorResponsable extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
 }
 
-async function opciones(): Promise<OpcionResponsable[]> {
+export async function opciones(): Promise<OpcionResponsable[]> {
   return opcionesResponsable(await listPortalUsers());
 }
 

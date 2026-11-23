@@ -9,6 +9,7 @@ import { ESTADOS_ORDEN } from "@/types/tecnicos";
 import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
 import { PanelCobros } from "@/components/tecnicos/ordenes/PanelCobros";
 import { MotivosSelector } from "@/components/tecnicos/motivos/MotivosSelector";
+import { PUNTO, type DatosAlertas } from "@/components/tecnicos/alertas/tipos";
 import type { MotivoCorto } from "@/lib/tecnicos/motivos/reglas";
 
 const CHIP_REPUESTOS: Record<string, string> = {
@@ -95,6 +96,8 @@ const emptyStatusCounts = (): StatusCounts =>
     {} as StatusCounts
   );
 
+type FiltroAlerta = "atencion" | "porVencer" | "mias" | "sinResponsable" | null;
+
 const riskFilterLabels: Record<Exclude<RiskFilter, null>, string> = {
   warning: "Próximas a baja",
   critical: "Cumplen política de baja",
@@ -163,6 +166,9 @@ export function OrdenesPageClient() {
   const [ordenes, setOrdenes] = useState<OrdenListado[]>([]);
   // Fase 2: chip de repuestos bajo pedido por orden ("Repuestos 2/3", "1 sin comprar").
   const [repuestos, setRepuestos] = useState<Record<string, { texto: string; tono: string }>>({});
+  // Rediseño R10 (tablero 10 B): alertas de atención y sus filtros (no se mezclan con los de baja).
+  const [alertas, setAlertas] = useState<DatosAlertas | null>(null);
+  const [alertaFiltro, setAlertaFiltro] = useState<FiltroAlerta>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -333,8 +339,35 @@ export function OrdenesPageClient() {
 
   const handleRiskFilterChange = (value: Exclude<RiskFilter, null>) => {
     setRiskFilter((prev) => (prev === value ? null : value));
+    setAlertaFiltro(null);
     resetPagination();
   };
+
+  const handleAlertaFiltro = (value: Exclude<FiltroAlerta, null>) => {
+    setAlertaFiltro((prev) => (prev === value ? null : value));
+    setRiskFilter(null);
+  };
+
+  useEffect(() => {
+    let vivo = true;
+    fetch("/api/tecnicos/alertas", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => { if (vivo && j.success) setAlertas(j.data as DatosAlertas); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [refreshKey]);
+
+  // «Abrir en la lista» desde la barra: /tecnicos/ordenes?alerta=atencion|mias…
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("alerta");
+    if (v === "atencion" || v === "porVencer" || v === "mias" || v === "sinResponsable") setAlertaFiltro(v);
+  }, []);
+
+  const alertaDe = new Map((alertas?.filas ?? []).map((f) => [f.ordenId, f.alerta]));
+  const filasAlerta = (alertas?.filas ?? []).filter((f) =>
+    alertaFiltro === "sinResponsable" ? !f.responsableId
+      : alertaFiltro === "mias" ? f.responsableId === alertas?.yo && f.alerta.nivel !== "alDia"
+        : f.alerta.nivel === alertaFiltro);
 
   const handleNextPage = () => {
     if (!nextOffset || loading) return;
@@ -512,41 +545,76 @@ export function OrdenesPageClient() {
               </div>
             </div>
 
-            {loading && <div className="text-sm text-[#CFCFCB]">Cargando ordenes...</div>}
+            {/* Rediseño R10 (tablero 10 B): filtros de atención + los de baja, en una fila. */}
+            <div className="flex flex-wrap items-center gap-1.5 px-1">
+              {([
+                ["atencion", "Atención", alertas?.resumen.atencion ?? 0, "bg-[#FF7A70]"],
+                ["porVencer", "Por vencer", alertas?.resumen.porVencer ?? 0, "bg-[#FFB547]"],
+                ["mias", "Mías", alertas?.resumen.mias ?? 0, ""],
+                ["sinResponsable", "Sin responsable", alertas?.resumen.sinResponsable ?? 0, ""],
+              ] as const).map(([clave, etiqueta, n, punto]) => (
+                <button key={clave} type="button" onClick={() => handleAlertaFiltro(clave)} aria-pressed={alertaFiltro === clave}
+                  className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
+                    alertaFiltro === clave
+                      ? clave === "atencion" ? "border-[#FF7A70] bg-[rgba(255,122,112,.1)] text-white" : "border-[#D7FF4F] bg-[rgba(215,255,79,.08)] text-white"
+                      : "border-[#3A3A36] bg-[#1E1F1C] text-[#F0F0EC] hover:border-[#D7FF4F]/50"}`}>
+                  {punto && <span className={`h-2 w-2 rounded-full ${punto}`} />}{etiqueta} <b className="tabular-nums">{n}</b>
+                </button>
+              ))}
+              <span className="mx-1 h-4 w-px bg-[#3A3A36]" aria-hidden="true" />
+              {(["warning", "critical"] as const).map((clave) => (
+                <button key={clave} type="button" onClick={() => handleRiskFilterChange(clave)} aria-pressed={riskFilter === clave}
+                  title={clave === "warning" ? "Entre 60 y 89 días sin respuesta" : "90 días o más sin respuesta"}
+                  className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
+                    riskFilter === clave
+                      ? clave === "critical" ? "border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] text-white" : "border-[var(--sg-warning)] bg-[var(--sg-warning-soft)] text-white"
+                      : "border-[#3A3A36] bg-[#1E1F1C] text-[#F0F0EC] hover:border-[#D7FF4F]/50"}`}>
+                  {riskFilterLabels[clave]} <b className="tabular-nums">{clave === "warning" ? riskSummary.warningCount : riskSummary.criticalCount}</b>
+                </button>
+              ))}
+            </div>
+
+            {loading && !alertaFiltro && <div className="text-sm text-[#CFCFCB]">Cargando ordenes...</div>}
             {error && (
               <div className="text-sm text-red-400">
                 Ocurrio un problema al cargar las ordenes: {error}
               </div>
             )}
 
-            {riskFilter && (
-              <div className="flex flex-col gap-2 rounded-lg border border-[#3A3A36] bg-[#1E1F1C] px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm font-semibold text-[#CFCFCB]">
-                  Filtro activo:{" "}
-                  <span
-                    className={
-                      riskFilter === "critical"
-                        ? "text-[var(--sg-danger)]"
-                        : "text-[var(--sg-warning)]"
-                    }
-                  >
-                    {riskFilterLabels[riskFilter]}
-                  </span>
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRiskFilter(null);
-                    resetPagination();
-                  }}
-                  className="inline-flex h-9 items-center justify-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-3 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
-                >
-                  Limpiar filtro
-                </button>
+            {/* El filtro activo se ve en su botón (se toca otra vez para quitarlo). */}
+
+            {alertaFiltro && (
+              <div className="w-full overflow-x-auto rounded-lg border border-[#3A3A36] bg-[#252622] animate-[sg-entrada_160ms_ease-out]">
+                <div className="grid min-w-[870px] grid-cols-[92px_minmax(0,1fr)_minmax(0,1fr)_150px_minmax(0,1.5fr)_40px_52px] gap-3 border-b border-[#3A3A36] bg-[#30312D] px-3 py-2 text-[12px] uppercase tracking-wide text-[#A7A7A7]">
+                  <span>Orden</span><span>Cliente</span><span>Equipo</span><span>Estado</span><span>Atención</span><span>Resp.</span><span className="text-right">Hace</span>
+                </div>
+                {filasAlerta.length === 0 ? (
+                  <p className="px-3 py-3 text-sm text-[#A7A7A7]">{alertas ? "Ninguna orden en este filtro." : "Cargando…"}</p>
+                ) : filasAlerta.map((f) => {
+                  const r = f.responsableId ? alertas?.responsables[f.responsableId] : null;
+                  return (
+                    <Link key={f.ordenId} href={`/tecnicos/ordenes/${encodeURIComponent(f.ordenId)}`}
+                      className="grid min-w-[870px] grid-cols-[92px_minmax(0,1fr)_minmax(0,1fr)_150px_minmax(0,1.5fr)_40px_52px] items-center gap-3 border-t border-[#3A3A36] px-3 py-2.5 text-sm text-[#CFCFCB] transition hover:bg-[#2D2E2A]">
+                      <b className="text-[#D7FF4F]">{f.codigo}</b>
+                      <span className="truncate">{f.cliente || "—"}</span>
+                      <span className="truncate">{f.equipo || "—"}</span>
+                      <span className={`justify-self-start whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[12px] font-semibold ${getStatusTone(f.estado).badgeClass}`}>{f.estado}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${PUNTO[f.alerta.nivel]}`} />
+                        <span className="truncate">{f.alerta.pospuestaHasta ? `${f.alerta.texto} · pospuesta` : f.alerta.texto}</span>
+                      </span>
+                      <span title={r?.nombre ?? "Sin responsable"}
+                        className={`inline-flex h-[22px] w-[22px] items-center justify-center rounded-full text-[9px] font-extrabold ${r ? "bg-[#2C2D29] text-[#F0F0EC]" : "border border-dashed border-[#6E6E68] text-[#B5B5AE]"}`}>
+                        {r?.iniciales ?? "—"}
+                      </span>
+                      <span className="text-right font-bold tabular-nums">{f.alerta.hace}</span>
+                    </Link>
+                  );
+                })}
               </div>
             )}
 
-            {!loading && !error && (
+            {!loading && !error && !alertaFiltro && (
               <>
                 {ordenes.length === 0 ? (
                   <div className="text-sm text-[#A7A7A7]">
@@ -597,6 +665,13 @@ export function OrdenesPageClient() {
                               >
                                 {orden.estadoActual || "Sin estado"}
                               </span>
+                              {alertaDe.get(orden.recordId) && alertaDe.get(orden.recordId)!.nivel !== "alDia" ? (
+                                <span className="ml-1.5 inline-flex max-w-full items-center gap-1 text-[11px] font-semibold text-[#F0F0EC]"
+                                  title={`${alertaDe.get(orden.recordId)!.texto} · hace ${alertaDe.get(orden.recordId)!.hace}`}>
+                                  <span className={`h-2 w-2 shrink-0 rounded-full ${PUNTO[alertaDe.get(orden.recordId)!.nivel]}`} />
+                                  <span className="truncate">{alertaDe.get(orden.recordId)!.texto}</span>
+                                </span>
+                              ) : null}
                               {repuestos[orden.recordId] ? (
                                 <span className={`ml-1.5 inline-flex whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-semibold animate-[sg-entrada_180ms_ease-out] ${CHIP_REPUESTOS[repuestos[orden.recordId].tono] ?? CHIP_REPUESTOS.neutro}`} title="Repuestos bajo pedido de esta orden">
                                   {repuestos[orden.recordId].texto}
@@ -691,62 +766,6 @@ export function OrdenesPageClient() {
             )}
           </div>
 
-          <div className="space-y-2 rounded-[1rem] border border-[#3A3A36] bg-[#252622] p-3 shadow-xl shadow-black/20">
-            <div>
-              <p className="text-sm font-semibold text-white">Alertas de abandono</p>
-              <p className="mt-1 text-xs text-[#A7A7A7]">Conteo global con los filtros activos</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => handleRiskFilterChange("warning")}
-              className={`w-full rounded-lg border px-3 py-2 text-left transition ${
-                riskFilter === "warning"
-                  ? "border-[var(--sg-warning)] bg-[var(--sg-warning-soft)]"
-                  : "border-[var(--sg-border)] bg-[var(--sg-card)] hover:border-[var(--sg-warning)] hover:bg-[var(--sg-warning-soft)]"
-              }`}
-            >
-              <span className="flex items-center justify-between gap-3">
-                <span className="text-sm font-semibold text-white">Próximas a baja</span>
-                <span className="text-xl font-extrabold text-[var(--sg-warning)]">
-                  {riskSummary.warningCount}
-                </span>
-              </span>
-              <span className="mt-1 block text-xs text-[#A7A7A7]">
-                Entre 60 y 89 días sin respuesta
-              </span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleRiskFilterChange("critical")}
-              className={`w-full rounded-lg border px-3 py-2 text-left transition ${
-                riskFilter === "critical"
-                  ? "border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]"
-                  : "border-[var(--sg-border)] bg-[var(--sg-card)] hover:border-[var(--sg-danger)] hover:bg-[var(--sg-danger-soft)]"
-              }`}
-            >
-              <span className="flex items-center justify-between gap-3">
-                <span className="text-sm font-semibold text-white">Cumplen política de baja</span>
-                <span className="text-xl font-extrabold text-[var(--sg-danger)]">
-                  {riskSummary.criticalCount}
-                </span>
-              </span>
-              <span className="mt-1 block text-xs text-[#A7A7A7]">
-                90 días o más sin respuesta
-              </span>
-            </button>
-            {riskFilter && (
-              <button
-                type="button"
-                onClick={() => {
-                  setRiskFilter(null);
-                  resetPagination();
-                }}
-                className="inline-flex h-9 w-full items-center justify-center rounded-full border border-[#3A3A36] bg-[#1E1F1C] px-3 text-xs font-semibold text-[#CFCFCB] transition hover:border-[#D7FF4F]/50 hover:text-[#D7FF4F]"
-              >
-                Limpiar filtro
-              </button>
-            )}
-          </div>
         </aside>
       </div>
 

@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { AlertasBarra } from "@/components/tecnicos/alertas/AlertasBarra";
 import { BotonPantallaCliente } from "@/components/pantalla-cliente/BotonPantallaCliente";
 import { Button } from "@/components/ui/button";
 import {
@@ -407,6 +408,8 @@ export function StaffAppFrame({ children, activeHref, sectionLabel = "Portal Sta
 
             <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
               {/* Pantalla del cliente (10E-B): junto a la campanita, siempre a la vista. */}
+              {/* Rediseño R10: alertas de órdenes (solo quien trabaja en Técnicos). */}
+              {user && apps.some((a) => a.id === "tecnicos") ? <AlertasBarra /> : null}
               {user ? <BotonPantallaCliente /> : null}
               {user ? <NotificationBell /> : null}
               {isAdmin ? (

@@ -584,7 +584,7 @@ function PasosCard({ r, ordenId, onActividad }: { r: RespuestaPasos; ordenId: st
       {r.titulo && <p className="font-bold leading-snug">{r.titulo}</p>}
       {r.guias.length > 0 && (
         <div className="flex flex-col">
-          <span className={`${cap} pb-1`}>Guías con fotos</span>
+          <span className={`${cap} pb-1`}>Guías</span>
           {r.guias.map((g) => (
             <div key={g.url} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 border-t border-[#2C2D29] py-2">
               <span className="rounded-[5px] bg-[rgba(120,183,255,.12)] px-1.5 py-0.5 text-[10px] font-bold text-[#9CCBFF]">{g.dominio}</span>
