@@ -30,11 +30,12 @@ assert((pantalla.match(/<PrintIcon/g) ?? []).length === 1, "un solo botón de im
 
 // ─── Columnas en el orden del taller ─────────────────────────────────────────
 const i = (t: string) => pantalla.indexOf(t);
-assert(i("Motivo de ingreso</p>") < i("<PresupuestoCard") && i("<PresupuestoCard") < i("<ActividadCard"), "izquierda: Motivo → Trabajos → Actividad");
+assert(i("<MotivoIngresoCard") < i("<PresupuestoCard") && i("<PresupuestoCard") < i("<ActividadCard"), "izquierda: Motivo → Trabajos → Actividad");
 assert(i("<ActividadCard") < i("<aside") && i("<aside") < i(">Cliente</p>") && i(">Cliente</p>") < i("<EquipoFicha") && i("<EquipoFicha") < i("<CuentaCard")
   && i("<CuentaCard") < i("<OrdenDocumentosCard") && i("<OrdenDocumentosCard") < i("<OrdenCotizacionCard"), "derecha: Cliente → Equipo → Cuenta → Archivos → Cotización");
 assert(!/order-[123]/.test(pantalla), "la columna derecha ya no reordena con order-1/2/3");
-assert(/const conTexto = /.test(pantalla) && pantalla.includes("conTexto(orden.recomendaciones)"), "«Recomendaciones: \\-» de las órdenes viejas no se muestra");
+// R7: el motivo vive en su tarjeta (chips); ella esconde los «\-» viejos de Recomendaciones.
+assert(pantalla.includes("<MotivoIngresoCard") && leer("components/tecnicos/motivos/MotivoIngresoCard.tsx").includes("conTexto(recomendaciones)"), "«Recomendaciones: \\-» de las órdenes viejas no se muestra");
 
 // ─── Código viejo fuera ──────────────────────────────────────────────────────
 for (const t of ["handleGenerarMensaje", "pollHistorialMensaje", "handleSaveInline", "saveNotaInterna", "formatTimelineDate", "mensajeVisible"]) {

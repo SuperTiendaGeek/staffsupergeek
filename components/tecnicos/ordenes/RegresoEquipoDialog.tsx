@@ -1,5 +1,7 @@
 "use client";
 
+import { MotivosSelector } from "@/components/tecnicos/motivos/MotivosSelector";
+import type { MotivoCorto } from "@/lib/tecnicos/motivos/reglas";
 import { useEffect, useState } from "react";
 import { TIPOS_REGRESO, type TipoRegreso } from "@/lib/tecnicos/regreso/reglas";
 
@@ -26,6 +28,9 @@ export function RegresoEquipoDialog({ ordenId, onCerrar, onCreada }: {
   const [tipo, setTipo] = useState<TipoRegreso | "">("");
   const [clave, setClave] = useState<string>("");
   const [motivo, setMotivo] = useState("");
+  // Rediseño R7: el motivo son chips; el texto es lo que dijo el cliente (opcional).
+  const [motivos, setMotivos] = useState<MotivoCorto[]>([]);
+  const [intento, setIntento] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sacudir, setSacudir] = useState(0);
   const [enviando, setEnviando] = useState(false);
@@ -57,14 +62,15 @@ export function RegresoEquipoDialog({ ordenId, onCerrar, onCreada }: {
   const crear = async () => {
     if (enviando) return;
     if (!tipo) return fallar("Elige por qué regresa.");
-    if (motivo.trim().length < 5) return fallar("Escribe el motivo de ingreso.");
+    setIntento(true);
+    if (!motivos.length) return fallar("Elige al menos un motivo de ingreso.");
     setEnviando(true);
     setError(null);
     try {
       const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/regreso`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tipo, motivo: motivo.trim(), queFalloClave: tipo === "Garantía" && clave ? clave : null }),
+        body: JSON.stringify({ tipo, motivo: motivo.trim(), motivoIds: motivos.map((m) => m.id), queFalloClave: tipo === "Garantía" && clave ? clave : null }),
       });
       const j = await res.json();
       if (!res.ok || !j.success) throw new Error(j.error || "No se pudo crear la orden.");
@@ -122,14 +128,17 @@ export function RegresoEquipoDialog({ ordenId, onCerrar, onCreada }: {
               </div>
             )}
 
-            <label className="block space-y-1.5">
+            <div className="space-y-1.5">
               <span className="text-[11px] font-semibold text-[#B5B5AE]">Motivo de ingreso</span>
-              <textarea
-                rows={2}
+              <MotivosSelector valor={motivos} onCambio={(m) => { setMotivos(m); setError(null); }} invalido={intento} deshabilitado={enviando} />
+            </div>
+            <label className="flex items-center gap-2 rounded-lg border border-[#3A3A36] bg-[#151613] px-2.5 focus-within:border-[#D7FF4F]">
+              <span className="shrink-0 text-xs text-[#B5B5AE]">Cliente dice:</span>
+              <input
                 value={motivo}
                 onChange={(e) => { setMotivo(e.target.value); setError(null); }}
-                placeholder="Lo que dice el cliente"
-                className="w-full resize-none rounded-lg border border-[#3A3A36] bg-[#151613] px-2.5 py-2 text-sm text-[#F0F0EC] outline-none transition focus:border-[#D7FF4F]"
+                placeholder="(opcional)"
+                className="h-8 min-w-0 flex-1 bg-transparent text-sm text-[#F0F0EC] outline-none placeholder:text-[#8A8A84]"
               />
             </label>
           </>

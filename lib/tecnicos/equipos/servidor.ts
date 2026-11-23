@@ -222,13 +222,27 @@ async function fichasDelCliente(clienteId: string): Promise<Ficha[]> {
  * Al crear una orden: la ficha sale sola del texto. Si el cliente ya tiene
  * ese equipo (misma serie o mismo nombre), se usa su ficha y su historia.
  */
-export async function fichaParaOrdenNueva(o: { ordenId: string; clienteId: string; equipoTexto: string; creadoPor: string }): Promise<string | null> {
+export async function fichaParaOrdenNueva(o: {
+  ordenId: string; clienteId: string; equipoTexto: string; creadoPor: string;
+  /** Rediseño R7: contraseña escrita al registrar (va a la ficha, nunca a la orden). */
+  contrasena?: string; usuario?: Usuario;
+}): Promise<string | null> {
   const datos = interpretarEquipo(o.equipoTexto);
-  if (!datos.marca && !datos.modelo) return null;
+  const contrasena = o.contrasena?.trim() ?? "";
+  // Sin marca ni modelo no hay ficha… salvo que traiga contraseña: no se pierde.
+  if (!datos.marca && !datos.modelo && !contrasena) return null;
   const clave = claveEquipo(o.clienteId, datos);
-  const existente = (await fichasDelCliente(o.clienteId)).find((f) =>
-    claveEquipo(o.clienteId, { tipo: f.tipo as DatosEquipo["tipo"], marca: f.marca, modelo: f.modelo, serie: f.serie }) === clave);
-  const id = existente?.id ?? await crearFicha({ clienteId: o.clienteId, datos, creadoPor: o.creadoPor });
+  const existente = datos.marca || datos.modelo
+    ? (await fichasDelCliente(o.clienteId)).find((f) =>
+      claveEquipo(o.clienteId, { tipo: f.tipo as DatosEquipo["tipo"], marca: f.marca, modelo: f.modelo, serie: f.serie }) === clave)
+    : undefined;
+  const id = existente?.id ?? await crearFicha({ clienteId: o.clienteId, datos, contrasena, creadoPor: o.creadoPor });
   await patchOrden(o.ordenId, { "Ficha del equipo": [id] });
+  if (existente && contrasena) {
+    const actual = texto((await porIds(TABLA_EQUIPOS, [id], [E.contrasena])).get(id)?.fields[E.contrasena]);
+    if (actual !== contrasena) {
+      await cambiarContrasena({ equipoId: id, ordenId: o.ordenId, valor: contrasena, usuario: o.usuario ?? { nombre: o.creadoPor, email: null, id: null } });
+    }
+  }
   return id;
 }

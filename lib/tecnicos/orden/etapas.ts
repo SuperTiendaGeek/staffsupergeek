@@ -92,5 +92,6 @@ export function queSigue(o: DatosEtapas, r: ResumenPresupuesto | null): { texto:
   if (t.total > 0 && t.hechos === t.total) return { texto: "Pasar la orden a Completado", accion: null };
   if (r.esperaPago) return { texto: "Esperar el pago del repuesto", accion: null };
   if (r.esperaRepuesto && t.hechos + t.enEspera === t.total) return { texto: "Esperar el repuesto", accion: null };
-  return { texto: t.texto ? `Hacer los trabajos · ${t.texto}` : "Hacer los trabajos", accion: null };
+  // El conteo «2 de 3 hechos» ya está en la etapa «En trabajo»: aquí no se repite.
+  return { texto: "Hacer los trabajos", accion: null };
 }

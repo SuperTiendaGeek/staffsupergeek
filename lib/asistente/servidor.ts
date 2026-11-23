@@ -13,6 +13,8 @@ import { listarLineas } from "@/lib/tecnicos/presupuesto/airtable";
 import { revisarEntrega } from "@/lib/entrega/servidor";
 import { fetchCatalogoServicios } from "@/lib/tecnicos/airtable";
 import { coincidenciasParaOrden } from "@/lib/manual-tecnico/servidor";
+import { leerCatalogo } from "@/lib/tecnicos/motivos/servidor";
+import { dijoElCliente, textoMotivos } from "@/lib/tecnicos/motivos/reglas";
 import type { DatosOrdenIA, DatosTecnicoIA, EntradaHistorialIA, LineaIA } from "./contexto";
 import { notasDelHistorial } from "./contexto";
 
@@ -44,7 +46,7 @@ async function leerBase(ordenId: string): Promise<CamposBase> {
     fechaIngreso: firstString(f["Fecha de Ingreso"]),
     clienteNombre: texto(f["ClienteTXT"]),
     equipo: firstString(f["Equipo"]),
-    ingresaPor: firstString(f["Ingresa Por"]),
+    ingresaPor: await motivoParaIA(linkedIds(f["Motivos"]), firstString(f["Ingresa Por"])),
     accesorios: firstString(f["Accesorios"]),
     diagnostico: firstString(f["Diagnostico Inicial"]),
     // Rediseño R5: la nota interna pasó a la Actividad (la IA la lee del historial)
@@ -53,6 +55,16 @@ async function leerBase(ordenId: string): Promise<CamposBase> {
     entregadaEl: firstString(f["Fecha de entrega"]) || null,
     historialIds: linkedIds(f["Historial de Estados"]),
   };
+}
+
+/** Rediseño R7: la IA lee los chips del motivo y, aparte, lo que dijo el cliente. */
+async function motivoParaIA(motivoIds: string[], ingresaPor: string): Promise<string> {
+  if (!motivoIds.length) return ingresaPor;
+  const catalogo = await leerCatalogo().catch(() => []);
+  const nombres = motivoIds.map((id) => catalogo.find((m) => m.id === id)?.nombre ?? "").filter(Boolean);
+  if (!nombres.length) return ingresaPor;
+  const dijo = dijoElCliente(ingresaPor, nombres);
+  return `${textoMotivos(nombres)}${dijo ? `. Dijo el cliente: «${dijo}»` : ""}`;
 }
 
 /** Historial con su autor, más antiguo primero. */

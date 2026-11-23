@@ -22,7 +22,7 @@ const base = { estado: "En Proceso", fechaIngreso: "2026-11-04T15:00:00Z", presu
   assert(p[3].detalle === "2 de 3 hechos" && p[0].detalle !== "", "el paso dice cuántos trabajos van");
   assert(queSigue(base, r()).texto === "Esperar el repuesto" && queSigue(base, r()).accion === null, "solo falta el que espera repuesto: esperar el repuesto, sin botón destacado");
 }
-assert(queSigue(base, r({ esperaRepuesto: false, trabajos: { total: 3, hechos: 1, enEspera: 0, enProceso: 1, texto: "1 de 3 hechos" } })).texto === "Hacer los trabajos · 1 de 3 hechos", "faltan trabajos");
+assert(queSigue(base, r({ esperaRepuesto: false, trabajos: { total: 3, hechos: 1, enEspera: 0, enProceso: 1, texto: "1 de 3 hechos" } })).texto === "Hacer los trabajos", "faltan trabajos (sin repetir el conteo de la etapa)");
 assert(queSigue(base, r({ trabajos: { total: 3, hechos: 3, enEspera: 0, enProceso: 0, texto: "3 de 3 hechos" } })).texto === "Pasar la orden a Completado", "todo hecho: completar");
 assert(queSigue({ ...base, estado: "Pendiente", presupuestoEnviado: null }, null).texto === "Diagnosticar y armar el presupuesto", "sin presupuesto");
 assert(queSigue({ ...base, presupuestoEnviado: null }, r({ aprobadas: 0 })).texto === "Enviar el presupuesto al cliente", "presupuesto sin enviar");

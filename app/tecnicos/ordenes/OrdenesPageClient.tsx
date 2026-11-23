@@ -8,6 +8,8 @@ import { Button, FieldShell, Input, Textarea } from "@/components/tecnicos/ui";
 import { ESTADOS_ORDEN } from "@/types/tecnicos";
 import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
 import { PanelCobros } from "@/components/tecnicos/ordenes/PanelCobros";
+import { MotivosSelector } from "@/components/tecnicos/motivos/MotivosSelector";
+import type { MotivoCorto } from "@/lib/tecnicos/motivos/reglas";
 
 const CHIP_REPUESTOS: Record<string, string> = {
   exito: "border-[#56e3a4]/40 text-[#56e3a4]",
@@ -186,7 +188,11 @@ export function OrdenesPageClient() {
   const [nuevoCliente, setNuevoCliente] = useState<NuevoClienteForm>(emptyNuevoCliente);
   const [ordenEquipo, setOrdenEquipo] = useState("");
   const [ordenAccesorios, setOrdenAccesorios] = useState("");
-  const [ordenIngresaPor, setOrdenIngresaPor] = useState("");
+  // Rediseño R7: el motivo de ingreso son chips; «Cliente dice» queda en «Ingresa Por».
+  const [ordenMotivos, setOrdenMotivos] = useState<MotivoCorto[]>([]);
+  const [ordenClienteDice, setOrdenClienteDice] = useState("");
+  const [ordenContrasena, setOrdenContrasena] = useState("");
+  const [crearOrdenIntento, setCrearOrdenIntento] = useState(false);
   const [crearOrdenError, setCrearOrdenError] = useState<string | null>(null);
   const [crearOrdenDuplicado, setCrearOrdenDuplicado] = useState<ClienteBusqueda | null>(null);
   const [crearOrdenSaving, setCrearOrdenSaving] = useState(false);
@@ -352,7 +358,10 @@ export function OrdenesPageClient() {
     setNuevoCliente(emptyNuevoCliente);
     setOrdenEquipo("");
     setOrdenAccesorios("");
-    setOrdenIngresaPor("");
+    setOrdenMotivos([]);
+    setOrdenClienteDice("");
+    setOrdenContrasena("");
+    setCrearOrdenIntento(false);
     setCrearOrdenError(null);
     setCrearOrdenDuplicado(null);
     setCrearOrdenSaving(false);
@@ -372,7 +381,6 @@ export function OrdenesPageClient() {
     if (crearOrdenSaving) return;
 
     const equipo = ordenEquipo.trim();
-    const ingresaPor = ordenIngresaPor.trim();
     const nuevoClienteNombre = nuevoCliente.nombre.trim();
 
     if (!selectedCliente && !showNuevoCliente) {
@@ -387,8 +395,9 @@ export function OrdenesPageClient() {
       setCrearOrdenError("El equipo es obligatorio.");
       return;
     }
-    if (!ingresaPor) {
-      setCrearOrdenError("Ingresa Por es obligatorio.");
+    setCrearOrdenIntento(true);
+    if (!ordenMotivos.length) {
+      setCrearOrdenError("Elige al menos un motivo de ingreso.");
       return;
     }
 
@@ -404,7 +413,9 @@ export function OrdenesPageClient() {
           orden: {
             equipo,
             accesorios: ordenAccesorios.trim(),
-            ingresaPor,
+            motivoIds: ordenMotivos.map((m) => m.id),
+            clienteDice: ordenClienteDice.trim(),
+            contrasena: ordenContrasena.trim(),
           },
         }),
       });
@@ -912,6 +923,15 @@ export function OrdenesPageClient() {
                       disabled={crearOrdenSaving}
                     />
                   </FieldShell>
+                  <FieldShell label="Contraseña del equipo">
+                    <Input
+                      value={ordenContrasena}
+                      onChange={(event) => setOrdenContrasena(event.target.value)}
+                      placeholder="Opcional · queda oculta en la ficha"
+                      autoComplete="off"
+                      disabled={crearOrdenSaving}
+                    />
+                  </FieldShell>
                   <FieldShell label="Accesorios">
                     <Input
                       value={ordenAccesorios}
@@ -920,11 +940,19 @@ export function OrdenesPageClient() {
                       disabled={crearOrdenSaving}
                     />
                   </FieldShell>
-                  <FieldShell label="Ingresa Por">
+                  {/* Rediseño R7 (tablero 7): chips + buscador; si no existe, se crea con la revisión «¿Es lo mismo que…?». */}
+                  {/* No va dentro de <label>: tiene varios botones (un label los «clickearía»). */}
+                  <div className="space-y-1.5 sm:col-span-2">
+                    <span className="block text-sm font-semibold text-[var(--sg-text-secondary)]">
+                      Motivo de ingreso <span className="text-[#FF7A70]">*</span>
+                    </span>
+                    <MotivosSelector valor={ordenMotivos} onCambio={setOrdenMotivos} invalido={crearOrdenIntento} deshabilitado={crearOrdenSaving} />
+                  </div>
+                  <FieldShell label="Cliente dice" className="sm:col-span-2">
                     <Input
-                      value={ordenIngresaPor}
-                      onChange={(event) => setOrdenIngresaPor(event.target.value)}
-                      placeholder="Técnico o canal de ingreso"
+                      value={ordenClienteDice}
+                      onChange={(event) => setOrdenClienteDice(event.target.value)}
+                      placeholder="Opcional · sus palabras, tal cual"
                       disabled={crearOrdenSaving}
                     />
                   </FieldShell>
