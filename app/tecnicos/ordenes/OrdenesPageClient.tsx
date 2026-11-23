@@ -168,6 +168,7 @@ export function OrdenesPageClient() {
   const [repuestos, setRepuestos] = useState<Record<string, { texto: string; tono: string }>>({});
   // Rediseño R10 (tablero 10 B): alertas de atención y sus filtros (no se mezclan con los de baja).
   const [alertas, setAlertas] = useState<DatosAlertas | null>(null);
+  const [alertasFallo, setAlertasFallo] = useState(false);
   const [alertaFiltro, setAlertaFiltro] = useState<FiltroAlerta>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -352,8 +353,11 @@ export function OrdenesPageClient() {
     let vivo = true;
     fetch("/api/tecnicos/alertas", { cache: "no-store" })
       .then((r) => r.json())
-      .then((j) => { if (vivo && j.success) setAlertas(j.data as DatosAlertas); })
-      .catch(() => {});
+      .then((j) => {
+        if (!vivo) return;
+        if (j.success) { setAlertas(j.data as DatosAlertas); setAlertasFallo(false); } else setAlertasFallo(true);
+      })
+      .catch(() => { if (vivo) setAlertasFallo(true); });
     return () => { vivo = false; };
   }, [refreshKey]);
 
@@ -554,11 +558,12 @@ export function OrdenesPageClient() {
                 ["sinResponsable", "Sin responsable", alertas?.resumen.sinResponsable ?? 0, ""],
               ] as const).map(([clave, etiqueta, n, punto]) => (
                 <button key={clave} type="button" onClick={() => handleAlertaFiltro(clave)} aria-pressed={alertaFiltro === clave}
+                  title={alertasFallo && !alertas ? "No se pudieron leer las alertas" : undefined}
                   className={`inline-flex h-7 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-semibold transition ${
                     alertaFiltro === clave
                       ? clave === "atencion" ? "border-[#FF7A70] bg-[rgba(255,122,112,.1)] text-white" : "border-[#D7FF4F] bg-[rgba(215,255,79,.08)] text-white"
                       : "border-[#3A3A36] bg-[#1E1F1C] text-[#F0F0EC] hover:border-[#D7FF4F]/50"}`}>
-                  {punto && <span className={`h-2 w-2 rounded-full ${punto}`} />}{etiqueta} <b className="tabular-nums">{n}</b>
+                  {punto && <span className={`h-2 w-2 rounded-full ${punto}`} />}{etiqueta} <b className="tabular-nums">{alertasFallo && !alertas ? "—" : n}</b>
                 </button>
               ))}
               <span className="mx-1 h-4 w-px bg-[#3A3A36]" aria-hidden="true" />

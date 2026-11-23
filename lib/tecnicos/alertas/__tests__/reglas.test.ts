@@ -63,6 +63,20 @@ assert(llegadaPrevista(rep) === "2026-11-23", "«2 a 3 semanas» desde el 2-nov 
 assert(claves({ ...base, lineas: [rep] }).join() === "repuestoAtrasado", "pasada la fecha → «Repuesto atrasado»");
 assert(claves({ ...base, lineas: [{ ...rep, fechaAprobacion: ec("2026-11-20", "10:00").toISOString() }] }).length === 0, "repuesto aún a tiempo: no suena");
 assert(claves({ ...base, lineas: [{ ...rep, tiempoEstimado: "" }] }).length === 0, "repuesto sin tiempo estimado: no hay fecha, no suena");
+// Esperas externas (revisión de la vista previa del 23-nov)
+const servicio = linea({ descripcion: "Limpieza", fechaAprobacion: ec("2026-11-06", "18:00").toISOString() });
+const palmrest = linea({ bajoPedido: true, tiempoEstimado: "2 a 3 semanas", fechaAprobacion: ec("2026-11-06", "18:00").toISOString(), descripcion: "Palmrest" });
+assert(claves({ ...base, estado: "En Proceso", lineas: [palmrest, servicio] }).length === 0,
+  "OR000536: mientras el repuesto viene a tiempo, la limpieza que espera con él no suena «sin empezar»");
+const tarde = ec("2026-11-30", "12:00");
+assert(situaciones({ ...base, estado: "En Proceso", lineas: [palmrest, servicio] }, tarde).map((x) => x.clave).join() === "repuestoAtrasado",
+  "si el repuesto se atrasa, suena solo «Repuesto atrasado»");
+const esperando = { ...base, estado: "Esperando Respuesta", fechaIngreso: ec("2026-09-29", "13:00").toISOString(), ultimoMovimiento: ec("2026-11-04", "15:00").toISOString(), lineas: [linea({})] };
+assert(claves(esperando).join() === "clienteNoResponde", "OR000494: «Esperando Respuesta» con líneas aprobadas → «Cliente no responde» (no «sin empezar»)");
+assert(evaluarOrden(esperando, CONFIG_INICIAL, ahora)?.nivel === "atencion", "…y en rojo si pasaron 4 jornadas desde el último contacto");
+assert(claves({ ...esperando, fechaIngreso: ec("2026-08-11", "10:00").toISOString(), ultimoMovimiento: ec("2026-11-23", "11:00").toISOString() }).length === 0,
+  "OR000420: 60 días o más desde el ingreso = política de baja, aunque hayan escrito hoy");
+
 const alertaRep = evaluarOrden({ ...base, lineas: [rep] }, CONFIG_INICIAL, ahora);
 assert(alertaRep?.nivel === "atencion" && alertaRep.texto === "Repuesto atrasado (llegaba 23 nov)", "el repuesto atrasado va en rojo y dice cuándo llegaba");
 

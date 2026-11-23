@@ -248,13 +248,20 @@ export function situaciones(o: OrdenAlerta, ahora: Date): Candidata[] {
     return c;
   }
 
+  // «Esperando Respuesta» = la pelota la tiene el cliente (aunque haya líneas
+  // aprobadas: puede ser un pago o una propuesta nueva). Desde 60 días después
+  // del ingreso es de la política de baja (cuenta igual que sus filtros) y aquí
+  // no suena nada.
+  if (o.estado === "Esperando Respuesta") {
+    if ((ahora.getTime() - Date.parse(o.fechaIngreso)) / DIA >= DIAS_BAJA) return [];
+    c.push({ clave: "clienteNoResponde", desde: maxIso([o.presupuestoEnviado, mov]) ?? mov });
+    return c;
+  }
+
   if (!aprobadas.length) {
-    if (!vivas.length && o.estado !== "Esperando Respuesta") c.push({ clave: "sinPresupuesto", desde: o.fechaIngreso });
-    else if (o.presupuestoEnviado || o.estado === "Esperando Respuesta") {
-      const desde = o.presupuestoEnviado ?? mov;
-      // 60 días o más: ya es de la política de baja (tiene sus propios filtros).
-      if ((ahora.getTime() - Date.parse(desde)) / DIA < DIAS_BAJA) c.push({ clave: "clienteNoResponde", desde });
-    } else c.push({ clave: "presupuestoSinEnviar", desde: mov });
+    if (!vivas.length) c.push({ clave: "sinPresupuesto", desde: o.fechaIngreso });
+    else if (o.presupuestoEnviado) c.push({ clave: "clienteNoResponde", desde: o.presupuestoEnviado });
+    else c.push({ clave: "presupuestoSinEnviar", desde: mov });
     return c;
   }
 
@@ -274,7 +281,9 @@ export function situaciones(o: OrdenAlerta, ahora: Date): Candidata[] {
     if (eta && hoy > eta) c.push({ clave: "repuestoAtrasado", desde: `${eta}T23:00:00.000Z`, vencida: eta });
   }
   if (esperaCliente.length) c.push({ clave: "esperaCliente", desde: maxIso([...esperaCliente.map((l) => l.trabajoEn), mov]) ?? mov });
-  if (activos.length) {
+  // Mientras llega un repuesto, lo demás de la orden espera con él (espera
+  // externa): no suena «sin empezar» ni «sin avance». Si se atrasa, suena el repuesto.
+  if (activos.length && !esperaRepuesto.length) {
     const empezado = aprobadas.some((l) => trabajo(l) !== "Por hacer");
     c.push(empezado
       ? { clave: "sinAvance", desde: maxIso([...aprobadas.map((l) => l.trabajoEn), mov]) ?? mov }
@@ -293,7 +302,8 @@ export function evaluarOrden(o: OrdenAlerta, cfg: ConfigAlertas, ahora: Date): A
     const minutos = minutosHabiles(s.desde, ahora, cfg.horario);
     let nivel: Nivel = "alDia";
     let avance = 0;
-    if (s.clave === "repuestoAtrasado") { nivel = "atencion"; avance = 2; }
+    // Repuesto atrasado: rojo desde el día siguiente a la fecha prevista; pesa más cuantos más días.
+    if (s.clave === "repuestoAtrasado") { nivel = "atencion"; avance = 1 + Math.max(0, (ahora.getTime() - Date.parse(s.desde)) / DIA); }
     else {
       const u = cfg.plazos[s.clave];
       const at = u.atencion ? minutosDe(u.atencion, cfg.horario) : null;
