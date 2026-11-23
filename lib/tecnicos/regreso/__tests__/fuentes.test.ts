@@ -23,8 +23,9 @@ assert(/withLock\(`regreso:\$\{o\.ordenId\}`/.test(regreso), "el regreso tiene t
 assert(/revisarRegreso\(/.test(regreso) && /createOrdenReparacion\(/.test(regreso), "revisa y crea con la misma función de siempre (sin duplicar)");
 
 const pantalla = leer("app/tecnicos/ordenes/[id]/OrdenDetalleClient.tsx");
-assert(/esOrdenCerrada\(orden\.estadoActual\) \?/.test(pantalla), "la pantalla esconde el selector de estado en una orden cerrada");
-assert(/isAdministratorRole\(userRol\) && \(\s*<button type="button" onClick=\{\(\) => setReabrirAbierto\(true\)\}/.test(pantalla), "«Reabrir…» solo para administradores");
+// R1: la cabecera nueva calcula «cerrada» una vez y la usa para el selector y el menú ⋯.
+assert(/const cerrada = !!orden && esOrdenCerrada\(orden\.estadoActual\)/.test(pantalla) && /\{cerrada \? \(/.test(pantalla), "la pantalla esconde el selector de estado en una orden cerrada");
+assert(/cerrada && isAdministratorRole\(userRol\) && \(\s*<Desplegable[\s\S]{0,900}setReabrirAbierto\(true\)/.test(pantalla), "«Reabrir…» solo para administradores (menú ⋯ de la orden cerrada)");
 
 if (fallos) { console.error(`\n${fallos} prueba(s) fallaron`); process.exit(1); }
 console.log("\nTodo bien.");

@@ -33,10 +33,14 @@ function Icono({ e }: { e: EntradaActividad }) {
 const seg = (activo: boolean) =>
   `h-[26px] px-2.5 text-[11px] font-bold transition-colors duration-150 ${activo ? "bg-[rgba(215,255,79,.12)] text-[#D7FF4F]" : "bg-[#1E1F1C] text-[#B5B5AE] hover:text-white"}`;
 
-export function ActividadCard({ ordenId, refrescar }: {
+export function ActividadCard({ ordenId, refrescar, pedirMensaje = 0, onGuardada }: {
   ordenId: string;
   /** Cambia cuando algo de afuera escribió en la actividad (estado, trabajos, pagos…). */
   refrescar?: string | number;
+  /** Rediseño R1: «Avisar al cliente» de la cabecera sube este número → ✨ borrador Al cliente. */
+  pedirMensaje?: number;
+  /** Se guardó una nota (con WhatsApp = aviso al cliente): la orden se relee. */
+  onGuardada?: (enviado: boolean) => void;
 }) {
   const [datos, setDatos] = useState<Datos | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +56,8 @@ export function ActividadCard({ ordenId, refrescar }: {
   const [borrando, setBorrando] = useState<string | null>(null);
   const [verMensaje, setVerMensaje] = useState<string | null>(null);
   const area = useRef<HTMLTextAreaElement>(null);
+  const tarjeta = useRef<HTMLElement>(null);
+  const [llamado, setLlamado] = useState(0);
 
   const cargar = useCallback(async () => {
     try {
@@ -96,6 +102,7 @@ export function ActividadCard({ ordenId, refrescar }: {
       setNueva(e.id);
       setTexto("");
       setBorrador(null);
+      onGuardada?.(enviar);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo guardar.");
     } finally {
@@ -123,6 +130,16 @@ export function ActividadCard({ ordenId, refrescar }: {
       setIa(null);
     }
   }
+
+  // «Avisar al cliente» (cabecera): la tarjeta se trae a la vista, destella y
+  // la IA arma el borrador para el cliente con lo que dice la orden.
+  useEffect(() => {
+    if (!pedirMensaje) return;
+    tarjeta.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setLlamado((n) => n + 1);
+    void pedirIA("redactar");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedirMensaje]);
 
   async function guardarEdicion() {
     if (!editando) return;
@@ -158,7 +175,7 @@ export function ActividadCard({ ordenId, refrescar }: {
   const visibles = todas ? lista : lista.slice(0, VISIBLES_AL_INICIO);
 
   return (
-    <section className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3.5 py-3">
+    <section ref={tarjeta} key={llamado ? `llamado-${llamado}` : undefined} className={`scroll-mt-20 rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3.5 py-3 ${llamado ? "animate-[sg-destello_700ms_ease-out]" : ""}`}>
       <div className="flex flex-wrap items-center gap-2 pb-2">
         <h2 className="text-sm font-bold text-[#F0F0EC]">Actividad</h2>
         <div role="tablist" aria-label="Filtrar actividad" className="ml-auto inline-flex overflow-hidden rounded-lg border border-[#3A3A36]">

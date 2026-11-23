@@ -5,6 +5,7 @@ import { leerOrdenEnlace } from "@/lib/tecnicos/presupuesto/airtable";
 import { primerNombre } from "@/lib/tecnicos/presupuesto/enlace-reglas";
 import { origenPublico } from "@/lib/tecnicos/presupuesto/origen";
 import { buildWhatsAppUrl } from "@/lib/tecnicos/whatsapp";
+import { esMedioEnvio, marcarPresupuestoEnviado } from "@/lib/tecnicos/presupuesto/enviado";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,7 @@ type Params = { params: Promise<{ id: string }> };
 
 // GET  → estado del enlace de aprobación de la orden (no lo crea).
 // POST → lo crea si no existe; { renovar: true } le da 7 días más (mismo enlace).
+//        { enviado: "copiado" | "whatsapp" } marca «Presupuesto enviado» (R1).
 async function responder(request: Request, ordenId: string, info: { token: string; vence: string; estado: string }) {
   if (!info.token) return NextResponse.json({ success: true, data: { ...info, url: "", whatsapp: null } });
   const url = urlEnlace(origenPublico(request), info.token);
@@ -34,11 +36,19 @@ export async function GET(request: Request, { params }: Params) {
 }
 
 export async function POST(request: Request, { params }: Params) {
-  const { response } = await requireTecnicosSession();
+  const { response, session } = await requireTecnicosSession();
   if (response) return response;
   const { id } = await params;
-  const body = (await request.json().catch(() => ({}))) as { renovar?: boolean };
+  const body = (await request.json().catch(() => ({}))) as { renovar?: boolean; enviado?: unknown };
   try {
+    if (esMedioEnvio(body.enviado)) {
+      const enviado = await marcarPresupuestoEnviado({
+        ordenId: id,
+        medio: body.enviado,
+        usuario: { nombre: session.user.nombre ?? null, email: session.user.email ?? null, id: session.user.userId ?? null },
+      });
+      return NextResponse.json({ success: true, data: { enviado } });
+    }
     return await responder(request, id, await asegurarEnlace(id, { renovar: body.renovar === true }));
   } catch (e) {
     console.error("[presupuesto enlace POST]", e);

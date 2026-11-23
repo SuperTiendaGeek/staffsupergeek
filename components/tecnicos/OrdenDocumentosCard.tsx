@@ -118,19 +118,18 @@ export function OrdenDocumentosCard({ ordenId, documentos, onOrdenUpdated }: Pro
   };
 
   return (
-    <section className="rounded-[var(--sg-radius-md)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-4 shadow-[var(--sg-shadow-card)]">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-extrabold uppercase leading-tight tracking-wide text-[var(--sg-text-primary)]">
-          Archivos
-        </h3>
+    // Rediseño R1 (tablero 1): sin archivos es una sola línea «Archivos · Sin archivos · + Subir».
+    <section className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3.5 py-2.5 shadow-[var(--sg-shadow-card)]">
+      <div className="flex items-center gap-2">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Archivos</h3>
+        {!documentos.length && <span className="text-xs text-[var(--sg-text-muted)]">Sin archivos</span>}
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--sg-radius-sm)] border border-[var(--sg-lime)] bg-[var(--sg-lime)] px-3 text-[11px] font-bold text-[var(--sg-text-on-accent)] transition hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-60"
+          className="ml-auto inline-flex h-[26px] items-center justify-center gap-1 rounded-lg border border-[#3A3A36] bg-[#252622] px-2.5 text-[11px] font-semibold text-[#F0F0EC] transition hover:border-[var(--sg-lime)] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <span aria-hidden="true">+</span>
-          {uploading ? "Subiendo" : "Subir archivo"}
+          {uploading ? "Subiendo…" : "+ Subir"}
         </button>
         <input
           ref={inputRef}
@@ -143,13 +142,14 @@ export function OrdenDocumentosCard({ ordenId, documentos, onOrdenUpdated }: Pro
       </div>
 
       {error ? (
-        <p className="mt-3 rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2.5 py-1.5 text-[11px] text-[var(--sg-danger)]">
+        <p className="mt-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2.5 py-1.5 text-[11px] text-[var(--sg-danger)]">
           {error}
         </p>
       ) : null}
 
-      <div className="mt-3">
-        {documentos.length ? (
+      {documentos.length > 0 && (
+      <div className="mt-2">
+        {(
           <div className="flex flex-wrap gap-2">
             {documentos.map((documento, index) => {
               const filename = documento.filename || `Documento ${index + 1}`;
@@ -221,10 +221,9 @@ export function OrdenDocumentosCard({ ordenId, documentos, onOrdenUpdated }: Pro
               );
             })}
           </div>
-        ) : (
-          <p className="text-xs text-[var(--sg-text-muted)]">Sin archivos</p>
         )}
       </div>
+      )}
     </section>
   );
 }
