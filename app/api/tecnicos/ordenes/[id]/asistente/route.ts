@@ -4,7 +4,7 @@ import { bloqueImagen, iaDisponible, llamarClaude, type ImagenIA } from "@/lib/i
 import { DOMINIOS_TECNICO, extraerJson } from "@/lib/ia/respuesta";
 import { ErrorAsistente, leerOrdenParaIA, leerTecnicoParaIA } from "@/lib/asistente/servidor";
 import {
-  faltaParaEntregar, normalizarResumen, normalizarTecnico, pedidoMensaje, pedidoPregunta, pedidoResumen,
+  faltaParaEntregar, normalizarResumen, normalizarTecnico, pedidoMensaje, pedidoPregunta, pedidoRedactar, pedidoResumen,
   pedidoTecnico, pidePrecios, type TurnoChat,
 } from "@/lib/asistente/contexto";
 
@@ -83,6 +83,13 @@ export async function POST(request: Request, { params }: Params) {
       const r = await llamarClaude({ uso: "asistente-pregunta", sistema: p.sistema, mensajes: [{ role: "user", content: p.mensaje }], maxTokens: p.maxTokens });
       const json = extraerJson(r.texto);
       return NextResponse.json({ success: true, data: { respuesta: typeof json?.respuesta === "string" ? json.respuesta : r.texto } });
+    }
+
+    if (accion === "redactar") {
+      const p = pedidoRedactar(datos, String(body.apunte ?? ""), ahora);
+      const r = await llamarClaude({ uso: "asistente-mensaje", sistema: p.sistema, mensajes: [{ role: "user", content: p.mensaje }], maxTokens: p.maxTokens });
+      const json = extraerJson(r.texto);
+      return NextResponse.json({ success: true, data: { mensaje: typeof json?.mensaje === "string" ? json.mensaje.trim() : r.texto } });
     }
 
     if (accion === "corto" || accion === "otro") {

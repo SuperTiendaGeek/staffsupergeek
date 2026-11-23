@@ -630,7 +630,7 @@ function puedePedidoAparte(l: LineaPresupuesto, claveCompra: string | undefined)
 }
 
 export function PresupuestoCard({
-  ordenId, onCargado, refrescar = 0, productosDigitales = [], esAdmin = false, onProductoDigitalCambiado,
+  ordenId, onCargado, refrescar = 0, productosDigitales = [], esAdmin = false, onProductoDigitalCambiado, onActividad,
 }: {
   ordenId: string;
   onCargado: () => void | Promise<void>;
@@ -645,6 +645,8 @@ export function PresupuestoCard({
   esAdmin?: boolean;
   /** Se generó o borró el PDF de un producto digital: releer la orden. */
   onProductoDigitalCambiado?: () => void | Promise<void>;
+  /** Rediseño R3: se anotó algo en la Actividad (avance de un trabajo). */
+  onActividad?: () => void;
 }) {
   const [lineas, setLineas] = useState<LineaPresupuesto[]>([]);
   const [pedidos, setPedidos] = useState<Record<string, InfoPedido>>({});
@@ -1132,7 +1134,7 @@ export function PresupuestoCard({
                     <td className="px-2 py-1.5 align-top">
                       {trabajos[l.id] ? (
                         <span className="flex flex-col items-start gap-0.5">
-                          <EstadoTrabajo ordenId={ordenId} lineaId={l.id} visible={trabajos[l.id]} deshabilitado={ocupado === l.id} onCambiado={recargar} />
+                          <EstadoTrabajo ordenId={ordenId} lineaId={l.id} visible={trabajos[l.id]} deshabilitado={ocupado === l.id} onCambiado={async () => { await recargar(); onActividad?.(); }} />
                           {trabajos[l.id].novedad && <span className="max-w-[180px] text-[10.5px] leading-snug text-[#FFB547]">{trabajos[l.id].novedad}</span>}
                           <span className="text-[10px] text-[var(--sg-text-muted)]">{estadoVisible(l).texto}</span>
                         </span>

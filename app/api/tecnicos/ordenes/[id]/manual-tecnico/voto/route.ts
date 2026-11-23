@@ -24,7 +24,7 @@ export async function POST(request: Request, { params }: Params) {
       success: true,
       data: {
         yaEstaba: r.yaEstaba,
-        notaInterna: r.notaInterna,
+        anotado: r.anotado,
         vecesFunciono: r.entrada.vecesFunciono,
         vecesFallo: r.entrada.vecesFallo,
         estado: r.entrada.estado,

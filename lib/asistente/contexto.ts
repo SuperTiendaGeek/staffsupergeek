@@ -221,6 +221,28 @@ export function pedidoMensaje(d: DatosOrdenIA, actual: string, variante: "corto"
   };
 }
 
+/**
+ * ✨ de la Actividad (rediseño R3): borrador del mensaje para el cliente sobre
+ * el estado actual. Si la persona ya escribió algo, es lo que quiere decir:
+ * la IA lo pone en limpio sin inventar.
+ */
+export function pedidoRedactar(d: DatosOrdenIA, apunte: string, ahoraIso: string): PedidoTexto {
+  const a = recortar(apunte ?? "", 1500);
+  return {
+    sistema: SISTEMA_ORDEN,
+    maxTokens: 600,
+    mensaje: [
+      textoOrden(d, ahoraIso),
+      "",
+      a ? `Lo que el personal quiere decirle al cliente:\n${a}` : "El personal no escribió nada: cuéntale al cliente cómo va su equipo.",
+      "",
+      a ? "Redacta el mensaje con esa información, sin agregar datos que no estén en la orden." : "Redacta el mensaje sobre el estado actual.",
+      REGLAS_MENSAJE,
+      'Responde SOLO con JSON: {"mensaje": "..."}',
+    ].join("\n"),
+  };
+}
+
 export function pedidoPregunta(d: DatosOrdenIA, pregunta: string, ahoraIso: string): PedidoTexto {
   return {
     sistema: SISTEMA_ORDEN,

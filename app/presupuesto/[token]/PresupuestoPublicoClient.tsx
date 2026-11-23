@@ -26,6 +26,8 @@ type Vista = {
   pendientes: number;
   totalAprobado: number;
   totalPendiente: number;
+  /** Rediseño R3: lo que el taller escribió para el cliente. */
+  novedades?: Array<{ fecha: string; texto: string }>;
   /** Maquetas 7a/7b (17-nov): la cuenta de la orden y la caja de cobro en línea. */
   cuenta?: { total: number; pagado: number; falta: number; faltaRepuestos: number } | null;
   pagoEnLinea?: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null; medios?: MediosPago };
@@ -642,6 +644,20 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
           <section className="space-y-2">
             <h2 className="text-sm font-bold text-[#A7A7A7]">{pendientes.length ? "Ya respondido" : "Tu presupuesto"}</h2>
             <ul className="space-y-2">{resto.map(pintar)}</ul>
+          </section>
+        )}
+
+        {(vista.novedades?.length ?? 0) > 0 && (
+          <section className="rounded-2xl border border-[#3A3A36] bg-[#242422] p-4">
+            <h2 className="text-sm font-bold text-[#F5F5F5]">Novedades</h2>
+            <ul className="mt-2 space-y-2">
+              {vista.novedades!.map((n, i) => (
+                <li key={i} className="text-sm leading-relaxed text-[#E5E5E0]">
+                  <span className="whitespace-pre-line">{n.texto}</span>
+                  {n.fecha && <span className="ml-1.5 text-xs text-[#8A8A80]">{new Date(n.fecha).toLocaleDateString("es-EC", { timeZone: "America/Guayaquil", day: "numeric", month: "short" })}</span>}
+                </li>
+              ))}
+            </ul>
           </section>
         )}
 
