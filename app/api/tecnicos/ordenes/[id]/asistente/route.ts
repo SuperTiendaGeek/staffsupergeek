@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { bloqueImagen, iaDisponible, llamarClaude, type ImagenIA } from "@/lib/ia/claude";
 import { DOMINIOS_TECNICO, extraerJson } from "@/lib/ia/respuesta";
+import { formatoWhatsApp } from "@/lib/asistente/formato";
 import { ErrorAsistente, leerOrdenParaIA, leerTecnicoParaIA, motivosParaPasos, repuestosParaPasos } from "@/lib/asistente/servidor";
 import { guiasDeFuentes, normalizarPasos, pedidoPasos } from "@/lib/asistente/pasos";
 import {
@@ -94,7 +95,10 @@ export async function POST(request: Request, { params }: Params) {
       const r = await llamarClaude({ uso: "asistente-orden", sistema: p.sistema, mensajes: [{ role: "user", content: p.mensaje }], maxTokens: p.maxTokens });
       return NextResponse.json({
         success: true,
-        data: { ...normalizarResumen(extraerJson(r.texto), r.texto), falta, leidoEn: ahora, cliente: datos.clienteNombre, codigo: datos.codigo },
+        data: (() => {
+          const resumen = normalizarResumen(extraerJson(r.texto), r.texto);
+          return { ...resumen, mensaje: formatoWhatsApp(resumen.mensaje), falta, leidoEn: ahora, cliente: datos.clienteNombre, codigo: datos.codigo };
+        })(),
       });
     }
 
@@ -113,14 +117,14 @@ export async function POST(request: Request, { params }: Params) {
       const p = pedidoRedactar(datos, String(body.apunte ?? ""), ahora);
       const r = await llamarClaude({ uso: "asistente-mensaje", sistema: p.sistema, mensajes: [{ role: "user", content: p.mensaje }], maxTokens: p.maxTokens });
       const json = extraerJson(r.texto);
-      return NextResponse.json({ success: true, data: { mensaje: typeof json?.mensaje === "string" ? json.mensaje.trim() : r.texto } });
+      return NextResponse.json({ success: true, data: { mensaje: formatoWhatsApp(typeof json?.mensaje === "string" ? json.mensaje : r.texto) } });
     }
 
     if (accion === "corto" || accion === "otro") {
       const p = pedidoMensaje(datos, String(body.mensajeActual ?? ""), accion, ahora);
       const r = await llamarClaude({ uso: "asistente-mensaje", sistema: p.sistema, mensajes: [{ role: "user", content: p.mensaje }], maxTokens: p.maxTokens });
       const json = extraerJson(r.texto);
-      return NextResponse.json({ success: true, data: { mensaje: typeof json?.mensaje === "string" ? json.mensaje.trim() : r.texto } });
+      return NextResponse.json({ success: true, data: { mensaje: formatoWhatsApp(typeof json?.mensaje === "string" ? json.mensaje : r.texto) } });
     }
 
     return NextResponse.json({ success: false, error: "Acción no válida." }, { status: 400 });

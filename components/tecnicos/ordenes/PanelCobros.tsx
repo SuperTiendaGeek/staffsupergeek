@@ -107,22 +107,37 @@ export function PanelCobros({ onFiltroActivo }: { onFiltroActivo?: (activo: bool
   const [datos, setDatos] = useState<{ resumen: ResumenCobros; ordenes: OrdenCobro[] } | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
   const [recarga, setRecarga] = useState(0);
 
   useEffect(() => {
     const ctrl = new AbortController();
     setCargando(true);
     setError(null);
+    setOcupado(false);
     const desde = desdeDe(rango);
-    fetch(`/api/tecnicos/ordenes/cobros${desde ? `?desde=${desde}` : ""}`, { signal: ctrl.signal })
-      .then((r) => r.json())
-      .then((j) => {
-        if (!j.success) throw new Error(j.error || "No se pudo cargar el control de cobros");
-        setDatos(j.data);
-      })
-      .catch((e) => { if (!(e instanceof DOMException && e.name === "AbortError")) setError(e instanceof Error ? e.message : "Error"); })
-      .finally(() => { if (!ctrl.signal.aborted) setCargando(false); });
-    return () => ctrl.abort();
+    let reintento: ReturnType<typeof setTimeout> | undefined;
+    // El panel espera un momento al abrir la lista: primero cargan las órdenes y
+    // las alertas, y así no se juntan tantas consultas a Airtable a la vez.
+    const arranque = setTimeout(() => {
+      fetch(`/api/tecnicos/ordenes/cobros${desde ? `?desde=${desde}` : ""}`, { signal: ctrl.signal })
+        .then((r) => r.json())
+        .then((j) => {
+          if (j.ocupado) {
+            // Airtable pidió esperar: aviso corto y otro intento solo, sin botón.
+            setError(j.error);
+            setOcupado(true);
+            reintento = setTimeout(() => setRecarga((n) => n + 1), 30_000);
+            return;
+          }
+          if (!j.success) throw new Error(j.error || "No se pudo cargar el control de cobros.");
+          setDatos(j.data);
+        })
+        .catch((e) => { if (!(e instanceof DOMException && e.name === "AbortError")) setError(e instanceof Error ? e.message : "No se pudo cargar el control de cobros."); })
+        .finally(() => { if (!ctrl.signal.aborted) setCargando(false); });
+    }, recarga === 0 && !datos ? 1200 : 0);
+    return () => { ctrl.abort(); clearTimeout(arranque); if (reintento) clearTimeout(reintento); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rango, recarga]);
 
   function elegir(cat: CategoriaCobro) {
@@ -175,7 +190,7 @@ export function PanelCobros({ onFiltroActivo }: { onFiltroActivo?: (activo: bool
         </div>
       </div>
 
-      {error && <p className="px-1 text-sm text-red-400">{error}</p>}
+      {error && <p className={`px-1 text-xs ${ocupado ? "text-[var(--sg-text-muted)]" : "text-red-400"}`}>{error}</p>}
 
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
         {GRUPOS.map((g) => (

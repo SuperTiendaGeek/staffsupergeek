@@ -22,9 +22,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: true, data: { resumen: resumirCobros(ordenes), ordenes } });
   } catch (e) {
     console.error("[/api/tecnicos/ordenes/cobros GET]", e);
+    // Airtable ocupado (429): el panel vuelve a intentar solo; no se muestra el error crudo.
+    const ocupado = e instanceof Error && /\b429\b|RATE_LIMIT/.test(e.message);
     return NextResponse.json(
-      { success: false, error: e instanceof Error ? e.message : "No se pudo calcular el control de cobros" },
-      { status: 500 }
+      ocupado
+        ? { success: false, ocupado: true, error: "Airtable está ocupado. Se vuelve a intentar en unos segundos." }
+        : { success: false, error: "No se pudo calcular el control de cobros." },
+      { status: ocupado ? 503 : 500 }
     );
   }
 }
