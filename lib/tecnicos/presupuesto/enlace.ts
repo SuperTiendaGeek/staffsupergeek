@@ -40,6 +40,7 @@ import { faltaParaRepuestos, type ClaveSituacion } from "@/lib/compras/reglas";
 import { solicitudesDeOrden } from "@/lib/compras/servidor";
 import { lineaConTrabajo, trabajoVisible } from "./trabajo";
 import { novedadesDeLaOrden } from "@/lib/tecnicos/actividad/servidor";
+import { historiaParaCliente } from "@/lib/tecnicos/equipos/servidor";
 import { linkedIds } from "@/lib/finanzas/airtable-client";
 import { mediosDisponibles } from "@/lib/pagos-en-linea/config";
 import { intentosDeLaOrden } from "@/lib/pagos-en-linea/airtable";
@@ -142,6 +143,8 @@ export type VistaPublica = {
   pagoEnLinea: PagoEnLineaVista;
   /** Rediseño R3: lo que el taller escribió para el cliente en la Actividad. */
   novedades: Array<{ fecha: string; texto: string }>;
+  /** Rediseño R5: los servicios anteriores de este equipo. */
+  historiaEquipo: Array<{ codigo: string; fecha: string; motivo: string }>;
 } & ReturnType<typeof construirVista>;
 
 export async function vistaPublica(token: string): Promise<VistaPublica | null> {
@@ -164,10 +167,11 @@ export async function vistaPublica(token: string): Promise<VistaPublica | null> 
     const t = trabajoVisible(l, compras.get(v.id) ?? null);
     return { ...v, trabajo: { texto: t.textoCliente, tono: t.tono, novedad: t.novedad } };
   });
-  const [cons, cobro, novedades] = await Promise.all([
+  const [cons, cobro, novedades, historiaEquipo] = await Promise.all([
     consentimientosDeLaOrden(lineas),
     cobroDeLaOrden(o).catch((e) => { console.error("[presupuesto enlace] cuenta:", e); return null; }),
     novedadesDeLaOrden(o.id).catch((e) => { console.error("[presupuesto enlace] novedades:", e); return []; }),
+    historiaParaCliente(o.id).catch((e) => { console.error("[presupuesto enlace] historia del equipo:", e); return []; }),
   ]);
   return {
     cuenta: cobro ? cobro.cuentaVisible : null,
@@ -187,6 +191,7 @@ export async function vistaPublica(token: string): Promise<VistaPublica | null> 
     pideCedula: o.cedula.replace(/\D/g, "").length >= 4,
     ultimaRespuesta: resps[0] ? { fecha: resps[0].fecha, nombre: resps[0].nombre } : null,
     novedades,
+    historiaEquipo,
     ...vista,
   };
 }

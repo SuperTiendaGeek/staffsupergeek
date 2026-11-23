@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { CedulaEnUsoError, createOrdenReparacion, fetchOrdenesPage } from "@/lib/tecnicos/airtable";
+import { fichaParaOrdenNueva } from "@/lib/tecnicos/equipos/servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,12 @@ export async function POST(request: Request) {
       nuevoCliente,
       orden,
     });
+    // Rediseño R5: la ficha del equipo sale sola del texto (o se reusa la del
+    // cliente si ya trajo ese equipo). Nunca frena el registro.
+    if (created.clienteRecordId && orden?.equipo) {
+      await fichaParaOrdenNueva({ ordenId: created.airtableRecordId, clienteId: created.clienteRecordId, equipoTexto: orden.equipo, creadoPor: "Registro de orden" })
+        .catch((e) => console.error("[ordenes POST] ficha del equipo", e));
+    }
     return NextResponse.json({ success: true, ...created }, { status: 201 });
   } catch (error) {
     if (error instanceof CedulaEnUsoError) {

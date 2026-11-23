@@ -9,6 +9,7 @@ import { origenesDeGarantia } from "@/lib/garantias/servidor";
 import type { OrigenGarantia } from "@/lib/garantias/plazos";
 import { AIRTABLE_TABLES } from "@/lib/tecnicos/config/airtable";
 import { createHistorialEntrada, createOrdenReparacion } from "@/lib/tecnicos/airtable";
+import { fichaParaOrdenNueva } from "@/lib/tecnicos/equipos/servidor";
 import {
   origenesDeLaOrden, revisarRegreso, textoQueFallo, textoRegresoEnAnterior, textoRegresoEnNueva,
   type TipoRegreso,
@@ -104,6 +105,12 @@ export async function registrarRegreso(o: {
       orden: { equipo: orden.equipo || "Equipo", ingresaPor: r.motivo as string },
       enlaces: { ordenAnteriorId: orden.id, tipoRegreso: tipo, fichaEquipoIds: orden.fichaEquipoIds },
     });
+
+    // Rediseño R5: si la orden vieja no tenía ficha, la nueva la saca del texto.
+    if (!orden.fichaEquipoIds.length && orden.equipo) {
+      await fichaParaOrdenNueva({ ordenId: creada.airtableRecordId, clienteId: orden.clienteId, equipoTexto: orden.equipo, creadoPor: o.usuario.nombre || "Regreso" })
+        .catch((e) => console.error("[regreso] ficha del equipo", e));
+    }
 
     const autor = { creadoPorNombre: o.usuario.nombre, creadoPorEmail: o.usuario.email, creadoPorUsuarioId: o.usuario.id };
     // Constancias: nunca frenan (la orden nueva ya existe).
