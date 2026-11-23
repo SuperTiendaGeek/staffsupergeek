@@ -10,11 +10,13 @@ import { dijoElCliente, type MotivoCorto } from "@/lib/tecnicos/motivos/reglas";
 
 const conTexto = (v?: string | null) => !!v && !/^\s*(\\?-|no disponible)\s*$/i.test(v);
 
-export function MotivoIngresoCard({ ordenId, diagnostico, recomendaciones, onCambio }: {
+export function MotivoIngresoCard({ ordenId, diagnostico, recomendaciones, onCambio, onMotivos }: {
   ordenId: string;
   diagnostico?: string | null;
   recomendaciones?: string | null;
   onCambio?: () => void;
+  /** Los chips actuales (la pantalla los usa para el Asistente y el próximo mantenimiento). */
+  onMotivos?: (motivos: MotivoCorto[]) => void;
 }) {
   const [motivos, setMotivos] = useState<MotivoCorto[] | null>(null);
   const [ingresaPor, setIngresaPor] = useState("");
@@ -30,9 +32,10 @@ export function MotivoIngresoCard({ ordenId, diagnostico, recomendaciones, onCam
     let vivo = true;
     fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/motivos`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((j) => { if (vivo && j.success) { setMotivos(j.data.motivos); setIngresaPor(j.data.ingresaPor ?? ""); } })
+      .then((j) => { if (vivo && j.success) { setMotivos(j.data.motivos); setIngresaPor(j.data.ingresaPor ?? ""); onMotivos?.(j.data.motivos); } })
       .catch(() => { if (vivo) setMotivos([]); });
     return () => { vivo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ordenId]);
 
   const nombres = (motivos ?? []).map((m) => m.nombre);
@@ -61,6 +64,7 @@ export function MotivoIngresoCard({ ordenId, diagnostico, recomendaciones, onCam
       if (!res.ok || !j.success) throw new Error(j.error || "No se pudo guardar.");
       setMotivos(j.data.motivos);
       setIngresaPor(j.data.ingresaPor ?? "");
+      onMotivos?.(j.data.motivos);
       setEditando(false);
       setDestello((n) => n + 1);
       onCambio?.();

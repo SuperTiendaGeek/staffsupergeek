@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 import { bloqueImagen, iaDisponible, llamarClaude, type ImagenIA } from "@/lib/ia/claude";
 import { DOMINIOS_TECNICO, extraerJson } from "@/lib/ia/respuesta";
-import { ErrorAsistente, leerOrdenParaIA, leerTecnicoParaIA } from "@/lib/asistente/servidor";
+import { ErrorAsistente, leerOrdenParaIA, leerTecnicoParaIA, motivosParaPasos, repuestosParaPasos } from "@/lib/asistente/servidor";
+import { guiasDeFuentes, normalizarPasos, pedidoPasos } from "@/lib/asistente/pasos";
 import {
   faltaParaEntregar, normalizarResumen, normalizarTecnico, pedidoMensaje, pedidoPregunta, pedidoRedactar, pedidoResumen,
   pedidoTecnico, pidePrecios, type TurnoChat,
@@ -19,6 +20,7 @@ type Params = { params: Promise<{ id: string }> };
 // lib/entrega (no la IA). Las reglas viven en lib/asistente/contexto.ts.
 //   modo "orden":   accion resumen | pregunta | corto | otro
 //   modo "tecnico": mensaje + chat (+ foto) → causas, pruebas y fuentes
+//   modo "pasos":   motivos (chips) + modelo → guías citadas, pasos, cuidado, tiempo, repuestos del inventario (R7)
 export async function POST(request: Request, { params }: Params) {
   const { response } = await requireTecnicosSession();
   if (response) return response;
@@ -27,6 +29,28 @@ export async function POST(request: Request, { params }: Params) {
   const ahora = new Date().toISOString();
 
   try {
+    if (body.modo === "pasos") {
+      if (!iaDisponible()) return NextResponse.json({ success: false, error: "Falta configurar la clave de IA (ANTHROPIC_API_KEY en Vercel)." }, { status: 503 });
+      const [datos, motivos] = await Promise.all([leerTecnicoParaIA(ordenId, false), motivosParaPasos(ordenId)]);
+      const p = pedidoPasos(datos, motivos);
+      const r = await llamarClaude({
+        uso: "tecnico-pasos",
+        sistema: p.sistema,
+        mensajes: [{ role: "user", content: p.mensaje }],
+        maxTokens: p.maxTokens,
+        esfuerzo: "medium",
+        busqueda: { dominios: DOMINIOS_TECNICO, maxUsos: 4 },
+        tiempoMs: 80_000,
+      });
+      const n = normalizarPasos(extraerJson(r.texto));
+      if (!n.pasos.length) return NextResponse.json({ success: false, error: "El técnico experto no pudo armar los pasos. Intenta de nuevo." }, { status: 502 });
+      const repuestos = await repuestosParaPasos(n.buscar);
+      return NextResponse.json({
+        success: true,
+        data: { titulo: n.titulo, pasos: n.pasos, cuidado: n.cuidado, tiempo: n.tiempo, motivos, guias: guiasDeFuentes(r.fuentes), repuestos, hora: ahora },
+      });
+    }
+
     if (body.modo === "tecnico") {
       const mensaje = String(body.mensaje ?? "").trim().slice(0, 1500);
       if (!mensaje) return NextResponse.json({ success: false, error: "Cuenta qué viste o qué probaste." }, { status: 400 });
