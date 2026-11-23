@@ -56,7 +56,8 @@ export function AsistentePanel(props: {
   usuario: string;
   onRegistrarPago: () => void;
   onIrA: (seccion: "presupuesto" | "cuenta") => void;
-  onNotaInterna: (nota: string) => void;
+  /** Se anotó algo en la Actividad de la orden (rediseño R3: ya no hay «nota interna»). */
+  onActividad: () => void;
 }) {
   const { abierto, pestana, onPestana, onCerrar } = props;
   const [leidoEn, setLeidoEn] = useState<string | null>(null);
@@ -310,7 +311,8 @@ function PestanaTecnico(props: {
   ordenId: string;
   ingresaPor: string;
   usuario: string;
-  onNotaInterna: (nota: string) => void;
+  /** Se anotó algo en la Actividad de la orden (rediseño R3: ya no hay «nota interna»). */
+  onActividad: () => void;
   registrarNueva: (fn: () => void) => void;
 }) {
   const { ordenId } = props;
@@ -391,7 +393,7 @@ function PestanaTecnico(props: {
     <>
       <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-3.5">
         {biblioteca?.probadas.map((e) => (
-          <BloqueProbado key={e.id} e={e} ordenId={ordenId} onNotaInterna={props.onNotaInterna} />
+          <BloqueProbado key={e.id} e={e} ordenId={ordenId} onActividad={props.onActividad} />
         ))}
         {biblioteca?.parecidas.map((e) => (
           <details key={e.id} className="rounded-[10px] border border-[#3A3A36] bg-[#191A17] px-3 py-2">
@@ -419,7 +421,7 @@ function PestanaTecnico(props: {
               </div>
             )
           ) : t.respuesta ? (
-            <RespuestaCard key={i} r={t.respuesta} ordenId={ordenId} titulo={i <= 1 && hayProbado ? "En internet" : null} onNotaInterna={props.onNotaInterna} />
+            <RespuestaCard key={i} r={t.respuesta} ordenId={ordenId} titulo={i <= 1 && hayProbado ? "En internet" : null} onActividad={props.onActividad} />
           ) : null,
         )}
         {enviando && <p className="text-[#B5B5AE]">Buscando en sitios del fabricante y de reparación…</p>}
@@ -458,7 +460,7 @@ function PestanaTecnico(props: {
   );
 }
 
-function BloqueProbado({ e, ordenId, onNotaInterna }: { e: EntradaManual; ordenId: string; onNotaInterna: (nota: string) => void }) {
+function BloqueProbado({ e, ordenId, onActividad }: { e: EntradaManual; ordenId: string; onActividad: () => void }) {
   const [voto, setVoto] = useState<"si" | "no" | null>(null);
   const [conteo, setConteo] = useState({ si: e.vecesFunciono, no: e.vecesFallo });
   const [enviando, setEnviando] = useState(false);
@@ -477,7 +479,7 @@ function BloqueProbado({ e, ordenId, onNotaInterna }: { e: EntradaManual; ordenI
       if (!res.ok || !j.success) throw new Error(j.error || "No se pudo anotar.");
       setVoto(funciono ? "si" : "no");
       setConteo({ si: j.data.vecesFunciono, no: j.data.vecesFallo });
-      if (j.data.notaInterna) onNotaInterna(j.data.notaInterna);
+      if (j.data.anotado) onActividad();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo anotar.");
     } finally {
@@ -528,7 +530,7 @@ function BloqueProbado({ e, ordenId, onNotaInterna }: { e: EntradaManual; ordenI
   );
 }
 
-function RespuestaCard({ r, ordenId, titulo, onNotaInterna }: { r: RespuestaExperto; ordenId: string; titulo: string | null; onNotaInterna: (nota: string) => void }) {
+function RespuestaCard({ r, ordenId, titulo, onActividad }: { r: RespuestaExperto; ordenId: string; titulo: string | null; onActividad: () => void }) {
   const [aviso, setAviso] = useState<string | null>(null);
   const [pasando, setPasando] = useState(false);
   const plano = textoPlanoTecnico(r);
@@ -541,11 +543,11 @@ function RespuestaCard({ r, ordenId, titulo, onNotaInterna }: { r: RespuestaExpe
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto: `Técnico experto: ${plano}` }),
       });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok || !j.success) throw new Error(j.error || "No se pudo pasar a la nota interna.");
-      onNotaInterna(j.data.notaInterna);
-      setAviso("Pasado a la nota interna.");
+      if (!res.ok || !j.success) throw new Error(j.error || "No se pudo guardar en la Actividad.");
+      onActividad();
+      setAviso("Guardado como nota interna en la Actividad.");
     } catch (e) {
-      setAviso(e instanceof Error ? e.message : "No se pudo pasar a la nota interna.");
+      setAviso(e instanceof Error ? e.message : "No se pudo guardar en la Actividad.");
     } finally {
       setPasando(false);
     }
@@ -594,7 +596,7 @@ function RespuestaCard({ r, ordenId, titulo, onNotaInterna }: { r: RespuestaExpe
       )}
       <div className="flex flex-wrap items-center gap-1.5">
         <button type="button" className={btn} onClick={async () => setAviso((await copiar(plano)) ? "Copiado." : "No se pudo copiar.")}>Copiar</button>
-        <button type="button" className={btn} disabled={pasando} onClick={() => void pasarANota()}>{pasando ? "Pasando…" : "Pasar a nota interna"}</button>
+        <button type="button" className={btn} disabled={pasando} onClick={() => void pasarANota()}>{pasando ? "Guardando…" : "Guardar en la Actividad"}</button>
         {aviso && <span className="text-xs text-[#B5B5AE]">{aviso}</span>}
       </div>
     </section>

@@ -8,8 +8,7 @@ import { withLock } from "@/lib/concurrencia";
 import { listarTodo, texto } from "@/lib/estado-cuenta/airtable";
 import { airtableMutation, fetchRecordById, tableUrl, type AirtableRecord } from "@/lib/finanzas/airtable-client";
 import { fetchOrden, firstString } from "@/lib/facturacion/gancho/airtableGancho";
-import { updateOrdenNotaInterna } from "@/lib/tecnicos/airtable";
-import { fechaHoraEc } from "@/lib/asistente/contexto";
+import { agregarNotaInterna } from "@/lib/tecnicos/actividad/servidor";
 import {
   CAMPOS_MANUAL, TABLA_MANUAL, accionesPermitidas, aplicarVoto, buscarCoincidencias, camposArchivar, camposCorreccion,
   camposNuevaNota, camposNuevaSolucion, camposVerificar, entradaDesdeRegistro, errorFicha, errorNota, textoNotaVoto,
@@ -96,19 +95,6 @@ async function avisarAdministradores(o: { titulo: string; mensaje: string; url: 
   })));
 }
 
-/** Agrega una línea fechada a la nota interna de la orden (nunca la reemplaza). */
-export async function agregarANotaInterna(ordenId: string, textoNuevo: string, usuario: string): Promise<string> {
-  return withLock(`nota-interna:${ordenId}`, async () => {
-    const orden = await fetchOrden(ordenId).catch(() => null);
-    if (!orden) throw new ErrorManual("Orden no encontrada.", 404);
-    const actual = firstString(orden.fields["Nota interna"]).replace(/^No disponible$/i, "").trim();
-    const sello = `[${fechaHoraEc(new Date().toISOString())} · ${usuario || "Portal"}]`;
-    const nota = [actual, `${sello} ${textoNuevo.trim()}`].filter(Boolean).join("\n\n");
-    await updateOrdenNotaInterna({ ordenRecordId: ordenId, notaInterna: nota });
-    return nota;
-  });
-}
-
 // ─── Guardar ─────────────────────────────────────────────────────────────────
 
 export async function guardarSolucionDeOrden(o: {
@@ -161,7 +147,7 @@ export async function votarSolucion(o: {
   ordenId: string;
   funciono: boolean;
   usuario: string;
-}): Promise<{ entrada: EntradaManual; yaEstaba: boolean; notaInterna: string | null }> {
+}): Promise<{ entrada: EntradaManual; yaEstaba: boolean; anotado: boolean }> {
   const ordenCodigo = await codigoDeOrden(o.ordenId);
   const { entrada, resultado } = await withLock(`manual:${o.entradaId}`, async () => {
     const actual = await leerEntrada(o.entradaId);
@@ -170,11 +156,13 @@ export async function votarSolucion(o: {
     const entrada = resultado.yaEstaba ? actual : await escribir(actual.id, resultado.campos);
     return { entrada, resultado };
   });
-  if (resultado.yaEstaba) return { entrada, yaEstaba: true, notaInterna: null };
+  if (resultado.yaEstaba) return { entrada, yaEstaba: true, anotado: false };
 
-  // «Anotado en la orden y en la solución» (lienzo, tablero 8).
-  const notaInterna = await agregarANotaInterna(o.ordenId, textoNotaVoto(entrada, o.funciono), o.usuario)
-    .catch((e) => { console.error("[manual-tecnico] nota interna", e); return null; });
+  // «Anotado en la orden y en la solución» (lienzo, tablero 8). Rediseño R3:
+  // en la Actividad de la orden, como nota interna (ya no en «Nota interna»).
+  const anotado = await agregarNotaInterna(o.ordenId, textoNotaVoto(entrada, o.funciono), { nombre: o.usuario || null, email: null, id: null })
+    .then(() => true)
+    .catch((e) => { console.error("[manual-tecnico] actividad", e); return false; });
   if (resultado.pasaARevisar) {
     await avisarAdministradores({
       titulo: `Solución para revisar · ${tituloEntrada(entrada)}`,
@@ -183,7 +171,7 @@ export async function votarSolucion(o: {
       ordenId: o.ordenId,
     }).catch((e) => console.error("[manual-tecnico] aviso al administrador", e));
   }
-  return { entrada, yaEstaba: false, notaInterna };
+  return { entrada, yaEstaba: false, anotado };
 }
 
 // ─── Lo que hace el administrador ────────────────────────────────────────────

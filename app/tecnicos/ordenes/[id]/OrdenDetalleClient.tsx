@@ -27,6 +27,7 @@ import { METODO_SALDO_A_FAVOR, maximoUsable } from "@/lib/saldo-favor/reglas";
 import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
 import { EntregarClientePanel } from "@/components/tecnicos/ordenes/EntregarClientePanel";
 import { RegresoEquipoDialog } from "@/components/tecnicos/ordenes/RegresoEquipoDialog";
+import { ActividadCard } from "@/components/tecnicos/ordenes/ActividadCard";
 import { ReabrirOrdenDialog } from "@/components/tecnicos/ordenes/ReabrirOrdenDialog";
 import { esOrdenCerrada } from "@/lib/tecnicos/regreso/reglas";
 import { avisoAbonoDeMas } from "@/lib/cobros/aviso-abono";
@@ -639,6 +640,8 @@ export function OrdenDetalleClient() {
   const router = useRouter();
   // Rediseño R6: la orden entregada queda cerrada; el regreso crea otra.
   const [regresoAbierto, setRegresoAbierto] = useState(false);
+  // Rediseño R3: algo se anotó en la Actividad desde otra tarjeta (trabajos, asistente).
+  const [actividadVersion, setActividadVersion] = useState(0);
   const [reabrirAbierto, setReabrirAbierto] = useState(false);
   const [orden, setOrden] = useState<OrdenDetalle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1898,242 +1901,12 @@ export function OrdenDetalleClient() {
               </div>
             </section>
 
-            <section className="rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-3 shadow-[var(--sg-shadow-card)]">
-              <div className="flex items-center justify-between border-b border-[var(--sg-divider)] pb-2">
-                <div className="flex items-center gap-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">
-                    Historial
-                  </p>
-                  <span className="rounded-full bg-[var(--sg-panel)] px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[var(--sg-text-secondary)]">
-                    {orden.historial.length}
-                  </span>
-                </div>
-                {!inlineEditing && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setInlineEditing(true);
-                      setTimeout(() => inlineInputRef.current?.focus(), 10);
-                    }}
-                    className="inline-flex items-center gap-1 rounded-full border border-[var(--sg-lime)]/40 px-2.5 py-0.5 text-[11px] font-semibold text-[var(--sg-lime)] transition hover:border-[var(--sg-lime)] hover:bg-[var(--sg-lime-soft)]"
-                  >
-                    <span aria-hidden>+</span> Agregar
-                  </button>
-                )}
-              </div>
-
-              {inlineEditing && (
-                <div className="mt-2.5 rounded-[var(--sg-radius-md)] border border-[var(--sg-lime)]/30 bg-[var(--sg-panel)] px-3 py-3">
-                  <div className="space-y-1.5">
-                    <textarea
-                      ref={inlineInputRef}
-                      value={avanceTexto}
-                      onChange={(e) => setAvanceTexto(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSaveInline();
-                        }
-                        if (e.key === "Escape") {
-                          setInlineEditing(false);
-                          setAvanceTexto("");
-                          setSaveMessage(null);
-                          setNuevoEstadoError(null);
-                        }
-                      }}
-                      onBlur={() => {
-                        if (avanceTexto.trim()) handleSaveInline();
-                      }}
-                      rows={2}
-                      className="w-full resize-none rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2 text-sm leading-relaxed text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                      placeholder="Escribe una actualización rápida…"
-                      disabled={saving}
-                    />
-                    {nuevoEstadoError && (
-                      <p className="text-xs text-red-400">{nuevoEstadoError}</p>
-                    )}
-                    <div className="flex items-center gap-3 text-[11px] text-[var(--sg-text-muted)]">
-                      <span>Enter guarda · Esc cancela</span>
-                      {saving && <span className="text-[var(--sg-lime)]">Guardando…</span>}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {orden.historial.length === 0 && !inlineEditing ? (
-                <p className="mt-2.5 rounded-[var(--sg-radius-md)] border border-dashed border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-4 text-sm text-[var(--sg-text-secondary)]">
-                  Sin historial registrado.
-                </p>
-              ) : (
-                <div className="mt-1 divide-y divide-[var(--sg-divider)]">
-                  {orden.historial.map((item) => {
-                    const title = buildTimelineTitle(item.estadoNuevo);
-                    const notaLimpia = (item.nota ?? "").trim();
-                    const showNota =
-                      notaLimpia &&
-                      notaLimpia.toLowerCase() !== title.toLowerCase();
-                    const isEditing = editingId === item.id;
-                    const isMensajeLoading = mensajeLoading[item.id];
-                    const actionButtonClass =
-                      "inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--sg-text-muted)] transition hover:bg-[var(--sg-panel)] hover:text-[var(--sg-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--sg-lime)] disabled:cursor-not-allowed disabled:opacity-40";
-                    return (
-                      <div
-                        key={item.id}
-                        className="group py-2.5 text-sm text-[var(--sg-text-primary)]"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0 flex-1 space-y-0.5">
-                            {isEditing ? (
-                              <div className="space-y-1">
-                                <textarea
-                                  ref={editInlineRef}
-                                  value={editingValue}
-                                  onChange={(e) => setEditingValue(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter" && !e.shiftKey) {
-                                      e.preventDefault();
-                                      handleSaveEdicion();
-                                    }
-                                    if (e.key === "Escape") {
-                                      e.preventDefault();
-                                      resetEditing();
-                                    }
-                                  }}
-                                  onBlur={handleBlurEdicion}
-                                  rows={3}
-                                  className="w-full resize-none rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-sm leading-relaxed text-[var(--sg-text-primary)] placeholder:text-[var(--sg-text-muted)] transition focus:border-[var(--sg-lime)] focus:outline-none"
-                                  placeholder="Ajusta el estado"
-                                  disabled={editingSaving}
-                                />
-                                <div className="flex flex-wrap items-center gap-3 text-[11px] text-[var(--sg-text-muted)]">
-                                  <span>Enter guarda · Esc cancela</span>
-                                  {editingSaving && <span className="text-[var(--sg-lime)]">Guardando…</span>}
-                                  {editingError && <span className="text-red-400">{editingError}</span>}
-                                </div>
-                              </div>
-                            ) : (
-                              <>
-                                <p className="font-semibold leading-snug text-[var(--sg-text-primary)]">{title}</p>
-                                {showNota && (
-                                  <p className="whitespace-pre-wrap text-[0.8125rem] leading-relaxed text-[var(--sg-text-secondary)]">
-                                    {notaLimpia}
-                                  </p>
-                                )}
-                                <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[11px] text-[var(--sg-text-muted)]">
-                                  <span>{formatTimelineDate(item.fecha)}</span>
-                                  {item.creadoPorNombre ? (
-                                    <>
-                                      <span className="select-none">·</span>
-                                      <span>{item.creadoPorNombre}</span>
-                                    </>
-                                  ) : item.tecnicoNombre ? (
-                                    <>
-                                      <span className="select-none">·</span>
-                                      <span>{item.tecnicoNombre}</span>
-                                    </>
-                                  ) : null}
-                                  {isMensajeLoading && <span className="text-[var(--sg-lime)]">Generando…</span>}
-                                  {mensajeError[item.id] && <span className="text-red-400">{mensajeError[item.id]}</span>}
-                                  {whatsappError[item.id] && <span className="text-red-400">{whatsappError[item.id]}</span>}
-                                </div>
-                              </>
-                            )}
-                          </div>
-
-                          <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                            <button
-                              type="button"
-                              onClick={() => handleStartEdit(item)}
-                              className={actionButtonClass}
-                              title="Editar"
-                              disabled={editingSaving && isEditing}
-                            >
-                              <EditIcon className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleGenerarMensaje(item.id)}
-                              className={actionButtonClass}
-                              title={item.estadoGeneradoIA ? "Regenerar mensaje IA" : "Generar mensaje IA"}
-                              disabled={isMensajeLoading || editingId === item.id}
-                            >
-                              {isMensajeLoading ? (
-                                <span className="h-3 w-3 animate-spin rounded-full border border-[var(--sg-lime)] border-t-transparent" />
-                              ) : (
-                                <RefreshIcon className="h-3.5 w-3.5" />
-                              )}
-                            </button>
-                            {item.estadoGeneradoIA && (
-                              <button
-                                type="button"
-                                onClick={() => toggleMensajeVisible(item.id)}
-                                className={actionButtonClass}
-                                title={mensajeVisible[item.id] ? "Ocultar mensaje IA" : "Ver mensaje IA"}
-                              >
-                                <EyeIcon className="h-3.5 w-3.5" off={mensajeVisible[item.id]} />
-                              </button>
-                            )}
-                            {item.estadoGeneradoIA && (
-                              <button
-                                type="button"
-                                onClick={() => handleWhatsappSend(item.id, item.estadoGeneradoIA)}
-                                className={actionButtonClass}
-                                title="Enviar por WhatsApp"
-                              >
-                                <WhatsappIcon className="h-3.5 w-3.5 text-[var(--sg-lime)]" />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setDeleteConfirmId((prev) => (prev === item.id ? null : item.id))
-                              }
-                              className={`${actionButtonClass} hover:text-[var(--sg-danger)]`}
-                              title="Eliminar"
-                              disabled={deletingId === item.id}
-                            >
-                              {deletingId === item.id ? (
-                                <span className="h-3 w-3 animate-spin rounded-full border border-red-400/70 border-t-transparent" />
-                              ) : (
-                                <TrashIcon className="h-3.5 w-3.5" />
-                              )}
-                            </button>
-                          </div>
-                        </div>
-
-                        {item.estadoGeneradoIA && mensajeVisible[item.id] && (
-                          <div className="mt-2 whitespace-pre-wrap rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2.5 text-[0.8125rem] leading-relaxed text-[var(--sg-text-secondary)]">
-                            {item.estadoGeneradoIA}
-                          </div>
-                        )}
-                        {deleteConfirmId === item.id && (
-                          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--sg-radius-sm)] border border-[var(--sg-border)] bg-[var(--sg-panel)] px-3 py-2 text-[12px] text-[var(--sg-text-secondary)]">
-                            <span className="flex-1 text-[var(--sg-text-muted)]">¿Eliminar este estado?</span>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteConfirmId(null)}
-                              className="rounded border border-[var(--sg-border)] px-2 py-0.5 text-[var(--sg-text-secondary)] transition hover:border-[var(--sg-lime)] hover:text-[var(--sg-text-primary)]"
-                              disabled={deletingId === item.id}
-                            >
-                              Cancelar
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteConfirm(item.id)}
-                              className="rounded border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-2 py-0.5 text-[var(--sg-danger)] transition hover:brightness-110 disabled:opacity-60"
-                              disabled={deletingId === item.id}
-                            >
-                              Eliminar
-                            </button>
-                            {deleteError && <span className="text-red-400">{deleteError}</span>}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
+            {/* Rediseño R3: historial, notas y mensajes al cliente en una sola
+                línea de tiempo (reemplaza el historial y «Generar mensaje IA»). */}
+            <ActividadCard
+              ordenId={orden.recordId}
+              refrescar={`${actividadVersion}-${orden.historial.length}-${orden.estadoActual}-${cuentaUnificada?.abonos?.length ?? 0}`}
+            />
 
             {/* Presupuesto: el único lugar para agregar, aprobar, quitar y modificar
                 cargos (fase 4: ya no hay tarjetas Repuestos/Servicios/Digitales). */}
@@ -2150,6 +1923,7 @@ export function OrdenDetalleClient() {
                 await fetchData({ showLoading: false, preserveError: true });
                 await loadCuentaUnificada();
               }}
+              onActividad={() => setActividadVersion((v) => v + 1)}
             />
           </div>
 
@@ -2587,7 +2361,7 @@ export function OrdenDetalleClient() {
               onIrA={(seccion) => {
                 setTimeout(() => document.getElementById(seccion === "cuenta" ? "orden-cuenta" : "orden-presupuesto")?.scrollIntoView({ behavior: "smooth", block: "start" }), 250);
               }}
-              onNotaInterna={(notaInterna) => setOrden((prev) => (prev ? { ...prev, notaInterna } : prev))}
+              onActividad={() => setActividadVersion((v) => v + 1)}
             />
           </div>
         )}
