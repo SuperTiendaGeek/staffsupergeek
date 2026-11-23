@@ -28,3 +28,22 @@ export const PUNTO: Record<string, string> = {
   porVencer: "bg-[#FFB547]",
   alDia: "bg-[#56E3A4]",
 };
+
+// Una sola lectura para la barra y la lista (evita dos consultas iguales a
+// Airtable al abrir la lista de órdenes). Vale 20 s; «forzar» relee.
+let enVuelo: Promise<DatosAlertas> | null = null;
+let ultima: { en: number; datos: DatosAlertas } | null = null;
+
+export function leerAlertasCompartidas(forzar = false): Promise<DatosAlertas> {
+  if (!forzar && ultima && Date.now() - ultima.en < 20_000) return Promise.resolve(ultima.datos);
+  if (enVuelo) return enVuelo;
+  enVuelo = fetch("/api/tecnicos/alertas", { cache: "no-store" })
+    .then((r) => r.json())
+    .then((j) => {
+      if (!j.success) throw new Error(j.error || "No se pudieron leer las alertas.");
+      ultima = { en: Date.now(), datos: j.data as DatosAlertas };
+      return ultima.datos;
+    })
+    .finally(() => { enVuelo = null; });
+  return enVuelo;
+}

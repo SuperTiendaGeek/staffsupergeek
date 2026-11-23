@@ -9,7 +9,7 @@ import { ESTADOS_ORDEN } from "@/types/tecnicos";
 import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
 import { PanelCobros } from "@/components/tecnicos/ordenes/PanelCobros";
 import { MotivosSelector } from "@/components/tecnicos/motivos/MotivosSelector";
-import { PUNTO, type DatosAlertas } from "@/components/tecnicos/alertas/tipos";
+import { PUNTO, leerAlertasCompartidas, type DatosAlertas } from "@/components/tecnicos/alertas/tipos";
 import type { MotivoCorto } from "@/lib/tecnicos/motivos/reglas";
 
 const CHIP_REPUESTOS: Record<string, string> = {
@@ -351,12 +351,9 @@ export function OrdenesPageClient() {
 
   useEffect(() => {
     let vivo = true;
-    fetch("/api/tecnicos/alertas", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => {
-        if (!vivo) return;
-        if (j.success) { setAlertas(j.data as DatosAlertas); setAlertasFallo(false); } else setAlertasFallo(true);
-      })
+    // La misma lectura que la barra de arriba (una sola consulta al abrir la lista).
+    leerAlertasCompartidas(refreshKey > 0)
+      .then((d) => { if (vivo) { setAlertas(d); setAlertasFallo(false); } })
       .catch(() => { if (vivo) setAlertasFallo(true); });
     return () => { vivo = false; };
   }, [refreshKey]);

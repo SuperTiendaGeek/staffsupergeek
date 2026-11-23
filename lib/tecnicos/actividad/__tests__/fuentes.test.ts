@@ -17,7 +17,13 @@ assert(!/title=\{item\.estadoGeneradoIA \? "Regenerar mensaje IA" : "Generar men
 
 const tarjeta = leer("components/tecnicos/ordenes/ActividadCard.tsx");
 assert(/accion: "redactar"|accion, apunte: texto/.test(tarjeta), "✨ pide el borrador a la IA");
-assert(/buildWhatsAppUrl\(datos\?\.telefono/.test(tarjeta), "«Guardar y enviar por WhatsApp» usa el teléfono del cliente");
+assert(/buildWhatsAppUrl\(datos\?\.telefono/.test(tarjeta), "«WhatsApp» usa el teléfono del cliente");
+// 23-nov (personal): sin selector «Nota interna / Al cliente»; el botón decide.
+assert(!tarjeta.includes("Para quién es la nota") && !tarjeta.includes('"Nota interna"'), "ya no hay selector Nota interna / Al cliente");
+assert(tarjeta.includes('guardar(texto, "nota")') && tarjeta.includes('guardar(texto, "whatsapp")'), "en la caja: «Guardar» (solo el personal) y «WhatsApp» (mensaje al cliente)");
+assert(tarjeta.includes('guardar(borrador, "copiar")') && tarjeta.includes('guardar(borrador, "whatsapp")'), "el borrador de la IA: «Copiar» o «Enviar por WhatsApp»; los dos quedan como mensaje al cliente");
+assert(tarjeta.includes("navigator.clipboard.writeText(e.texto)"), "cada nota o mensaje de la lista se puede copiar");
+assert(tarjeta.includes("Enviado al cliente") && !tarjeta.includes(">Interna<"), "la lista ya no marca «Interna» en cada nota");
 
 const ruta = leer("app/api/tecnicos/ordenes/[id]/asistente/route.ts");
 assert(/accion === "redactar"/.test(ruta) && /pedidoRedactar\(/.test(ruta), "la ruta del asistente sabe redactar el mensaje");

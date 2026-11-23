@@ -180,6 +180,8 @@ const SISTEMA_ORDEN = [
 
 const REGLAS_MENSAJE = [
   "El mensaje es para WhatsApp: trata al cliente de usted, máximo 70 palabras, firma «SUPER GEEK».",
+  "Formato: el saludo solo en la primera línea («Hola, Nombre.»); después, párrafos cortos de 1 o 2 frases separados por una línea en blanco;",
+  "al final «Gracias por su confianza.» y, en la línea siguiente, «SUPER GEEK». En el JSON, cada salto de línea va como \\n.",
   "Nunca pongas en el mensaje notas internas, costos de proveedor, nombres de técnicos ni datos que el cliente no deba ver.",
   "Si hay saldo por cobrar, dilo con el monto exacto de la cuenta.",
 ].join(" ");

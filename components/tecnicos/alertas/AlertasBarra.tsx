@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { EVENTO_ALERTAS, PUNTO, type DatosAlertas } from "./tipos";
+import { EVENTO_ALERTAS, PUNTO, leerAlertasCompartidas, type DatosAlertas } from "./tipos";
 
 // Botones de alertas en la barra superior (rediseño R10, tablero 10 A y D).
 // Rojo «N» solo si hay órdenes que necesitan atención; ámbar «N» si hay por
@@ -28,12 +28,9 @@ export function AlertasBarra() {
   const anterior = useRef<number | null>(null);
   const caja = useRef<HTMLDivElement>(null);
 
-  const cargar = useCallback(async () => {
+  const cargar = useCallback(async (forzar = true) => {
     try {
-      const r = await fetch("/api/tecnicos/alertas", { cache: "no-store" });
-      const j = await r.json();
-      if (!j.success) { setFallo(true); return; }
-      const d = j.data as DatosAlertas;
+      const d = await leerAlertasCompartidas(forzar);
       // Late una vez solo cuando SUBE el número de rojas (no en cada lectura).
       if (anterior.current !== null && d.resumen.atencion > anterior.current) setLatido((n) => n + 1);
       anterior.current = d.resumen.atencion;
@@ -43,12 +40,13 @@ export function AlertasBarra() {
   }, []);
 
   useEffect(() => {
-    void cargar();
+    void cargar(false);
     const id = setInterval(() => { if (document.visibilityState === "visible") void cargar(); }, CADA_MS);
-    const alVolver = () => { if (document.visibilityState === "visible") void cargar(); };
-    window.addEventListener(EVENTO_ALERTAS, cargar);
+    const alVolver = () => { if (document.visibilityState === "visible") void cargar(false); };
+    const alCambiar = () => void cargar();
+    window.addEventListener(EVENTO_ALERTAS, alCambiar);
     document.addEventListener("visibilitychange", alVolver);
-    return () => { clearInterval(id); window.removeEventListener(EVENTO_ALERTAS, cargar); document.removeEventListener("visibilitychange", alVolver); };
+    return () => { clearInterval(id); window.removeEventListener(EVENTO_ALERTAS, alCambiar); document.removeEventListener("visibilitychange", alVolver); };
   }, [cargar]);
 
   useEffect(() => {
@@ -62,7 +60,7 @@ export function AlertasBarra() {
 
   if (!datos && fallo) {
     return (
-      <button type="button" onClick={() => void cargar()} title="No se pudieron leer las alertas · tocar para reintentar" aria-label="Reintentar alertas"
+      <button type="button" onClick={() => void cargar(true)} title="No se pudieron leer las alertas · tocar para reintentar" aria-label="Reintentar alertas"
         className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#3A3A36] px-2.5 text-xs font-bold text-[#8A8A84] transition hover:text-[#F0F0EC]">
         <Campana />!
       </button>
