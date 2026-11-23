@@ -33,6 +33,7 @@ import { ReabrirOrdenDialog } from "@/components/tecnicos/ordenes/ReabrirOrdenDi
 import { esOrdenCerrada } from "@/lib/tecnicos/regreso/reglas";
 import { ResponsableSelector } from "@/components/tecnicos/ordenes/ResponsableSelector";
 import { MotivoIngresoCard } from "@/components/tecnicos/motivos/MotivoIngresoCard";
+import { debeProponerMantenimiento, type MotivoCorto } from "@/lib/tecnicos/motivos/reglas";
 import { OrdenEtapas } from "@/components/tecnicos/ordenes/OrdenEtapas";
 import { Desplegable, OPCION_MENU } from "@/components/tecnicos/ordenes/Desplegable";
 import { diasEnTaller, fechaCorta, pasosDeLaOrden, queSigue, type ResumenPresupuesto } from "@/lib/tecnicos/orden/etapas";
@@ -571,6 +572,8 @@ export function OrdenDetalleClient() {
   // y «Avisar al cliente» de la cabecera pide el borrador a la Actividad.
   const [resumen, setResumen] = useState<ResumenPresupuesto | null>(null);
   const [pedirMensaje, setPedirMensaje] = useState(0);
+  // Rediseño R7: chips del motivo (para el Asistente y para proponer el próximo mantenimiento al entregar).
+  const [motivosOrden, setMotivosOrden] = useState<MotivoCorto[]>([]);
 
   const abandonmentStatus = useMemo(
     () => (orden ? getAbandonmentStatus(orden) : getAbandonmentStatus({})),
@@ -1328,6 +1331,7 @@ export function OrdenDetalleClient() {
                   ordenId={orden.recordId}
                   diagnostico={orden.diagnosticoInicial}
                   recomendaciones={orden.recomendaciones}
+                  onMotivos={setMotivosOrden}
                   onCambio={() => {
                     setActividadVersion((v) => v + 1);
                     void fetchData({ showLoading: false, preserveError: true });
@@ -1671,6 +1675,9 @@ export function OrdenDetalleClient() {
                   if (r.comprobante === "sin-cobro") {
                     window.open(`/tecnicos/ordenes/${encodeURIComponent(orden.recordId)}/entrega/imprimir`, "_blank", "noopener");
                   }
+                  // Rediseño R7: un motivo del grupo Mantenimiento propone la fecha del próximo
+                  // mantenimiento (la etiqueta de siempre, con 6 meses ya puestos).
+                  if (debeProponerMantenimiento(motivosOrden, orden.proximoMantenimiento)) setShowMantenimientoModal(true);
                 }}
               />
             )}
@@ -1838,6 +1845,7 @@ export function OrdenDetalleClient() {
               codigo={orden.idVisible}
               equipo={orden.equipo}
               ingresaPor={orden.ingresaPor}
+              motivos={motivosOrden.map((m) => m.nombre)}
               telefono={orden.telefono}
               usuario={userNombre}
               onRegistrarPago={abrirRegistrarPago}

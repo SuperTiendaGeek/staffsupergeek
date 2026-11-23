@@ -21,6 +21,8 @@ function cargarCatalogo(forzar = false): Promise<Motivo[]> {
 
 type Aviso = { texto: string; motivo: Motivo; grupo: GrupoMotivo | null };
 
+const MAXIMO = 8;
+
 const corto = (m: Motivo): MotivoCorto => ({ id: m.id, nombre: m.nombre, grupo: m.grupo });
 
 function Resaltado({ texto, marcas }: { texto: string; marcas: Array<[number, number]> }) {
@@ -67,6 +69,8 @@ export function MotivosSelector({ valor, onCambio, autoFocus = false, deshabilit
   }, []);
 
   const elegidos = valor.map((m) => m.id);
+  // El límite se respeta al elegir (no al guardar).
+  const lleno = valor.length >= MAXIMO;
   const resultados = useMemo(
     () => buscarMotivos(catalogo, texto, 6).filter((r) => !elegidos.includes(r.motivo.id)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -156,7 +160,7 @@ export function MotivosSelector({ valor, onCambio, autoFocus = false, deshabilit
           ref={entrada}
           autoFocus={autoFocus}
           value={texto}
-          disabled={deshabilitado}
+          disabled={deshabilitado || lleno}
           onChange={(e) => { setTexto(e.target.value); setAbierto(true); setActivo(0); setAviso(null); setError(null); }}
           onFocus={() => {
             setAbierto(true);
@@ -168,7 +172,7 @@ export function MotivosSelector({ valor, onCambio, autoFocus = false, deshabilit
           aria-expanded={abierto && !!texto.trim()}
           aria-controls={idLista}
           aria-label="Motivo de ingreso: buscar o crear"
-          placeholder={valor.length ? "" : "Buscar o crear…"}
+          placeholder={lleno ? `Máximo ${MAXIMO}` : valor.length ? "" : "Buscar o crear…"}
           className="h-6 min-w-[8rem] flex-1 bg-transparent text-sm text-[#F0F0EC] outline-none placeholder:text-[#8A8A84]"
         />
       </div>
@@ -212,7 +216,7 @@ export function MotivosSelector({ valor, onCambio, autoFocus = false, deshabilit
 
       {error && <p role="alert" className="text-xs text-[#FF7A70] animate-[sg-sacudir_240ms_ease-out]">{error}</p>}
 
-      {!texto.trim() && !aviso && sugeridos.length > 0 && (
+      {!texto.trim() && !aviso && !lleno && sugeridos.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {sugeridos.map((m) => (
             <button key={m.id} type="button" disabled={deshabilitado} onClick={() => agregar(corto(m))} className={chip}>{m.nombre}</button>

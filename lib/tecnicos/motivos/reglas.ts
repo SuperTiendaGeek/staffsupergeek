@@ -196,6 +196,11 @@ export function dijoElCliente(ingresaPor: string, nombres: string[]): string {
   return plano(t) === plano(textoMotivos(nombres)) ? "" : t;
 }
 
+/** Al entregar: si algún motivo es del grupo Mantenimiento y la orden aún no tiene fecha de próximo mantenimiento. */
+export function debeProponerMantenimiento(motivos: Array<Pick<MotivoCorto, "grupo">>, proximoMantenimiento: string | null | undefined): boolean {
+  return !(proximoMantenimiento ?? "").trim() && motivos.some((m) => m.grupo === "Mantenimiento");
+}
+
 // ─── Catálogo: unir dos motivos ──────────────────────────────────────────────
 
 /** Al unir «origen» en «destino»: las órdenes pasan al que queda y su nombre queda como palabra parecida. */

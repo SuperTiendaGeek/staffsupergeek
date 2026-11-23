@@ -5,6 +5,7 @@ import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/
 import { buildWhatsAppUrl } from "@/lib/tecnicos/whatsapp";
 import { PREGUNTAS_RAPIDAS, textoPlanoTecnico, type ItemFalta, type RespuestaTecnico } from "@/lib/asistente/contexto";
 import { dominioDe, type FuenteWeb } from "@/lib/ia/respuesta";
+import { textoPlanoPasos, type RespuestaPasos } from "@/lib/asistente/pasos";
 import { limpiarEquipo, pasosDeSolucion, parsearUsos, tituloEntrada, type Coincidencias, type EntradaManual } from "@/lib/manual-tecnico/reglas";
 import {
   Chip, ChipEstado, Destello, IconoAviso, IconoEnviar, IconoFalta, IconoHecho, IconoLibro,
@@ -34,6 +35,7 @@ type Pregunta = { pregunta: string; respuesta?: string; error?: string };
 
 export const claveChat = (ordenId: string) => `sg-asistente-tecnico:${ordenId}`;
 const claveOrden = (ordenId: string) => `sg-asistente-orden:${ordenId}`;
+const clavePasos = (ordenId: string) => `sg-asistente-pasos:${ordenId}`;
 
 /** El chat del técnico experto en el formato que entiende la ruta (y el borrador del Manual). */
 export function chatParaServidor(turnos: readonly Turno[]) {
@@ -52,6 +54,8 @@ export function AsistentePanel(props: {
   codigo: string;
   equipo: string;
   ingresaPor: string;
+  /** Rediseño R7: chips del motivo de ingreso (si la orden los tiene). */
+  motivos?: string[];
   telefono: string;
   usuario: string;
   onRegistrarPago: () => void;
@@ -96,7 +100,9 @@ export function AsistentePanel(props: {
           {pestana === "tecnico" && (
             <div className="flex flex-wrap gap-1.5">
               {limpiarEquipo(props.equipo) && <Chip>{limpiarEquipo(props.equipo)}</Chip>}
-              {props.ingresaPor.trim() && !/^no disponible$/i.test(props.ingresaPor.trim()) && <Chip>Ingreso: {props.ingresaPor.trim().slice(0, 60)}</Chip>}
+              {props.motivos?.length
+                ? props.motivos.map((m) => <Chip key={m}>{m}</Chip>)
+                : props.ingresaPor.trim() && !/^no disponible$/i.test(props.ingresaPor.trim()) && <Chip>Ingreso: {props.ingresaPor.trim().slice(0, 60)}</Chip>}
             </div>
           )}
         </div>
@@ -322,11 +328,32 @@ function PestanaTecnico(props: {
   const [foto, setFoto] = useState<{ tipo: "image/jpeg"; datos: string } | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Rediseño R7 (tablero 9): «Sugerir pasos» se pide con el botón (no se gasta IA al abrir).
+  const [pasos, setPasos] = useState<RespuestaPasos | null>(() => leerGuardado<RespuestaPasos>("session", clavePasos(ordenId)));
+  const [pidiendoPasos, setPidiendoPasos] = useState(false);
   const finRef = useRef<HTMLDivElement | null>(null);
   const archivoRef = useRef<HTMLInputElement | null>(null);
-  const arrancado = useRef(false);
 
   useEffect(() => { guardar("session", claveChat(ordenId), turnos); }, [ordenId, turnos]);
+  useEffect(() => { guardar("session", clavePasos(ordenId), pasos); }, [ordenId, pasos]);
+
+  async function sugerirPasos() {
+    if (pidiendoPasos) return;
+    setPidiendoPasos(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/asistente`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ modo: "pasos" }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.success) throw new Error(j.error || "El técnico experto no pudo armar los pasos.");
+      setPasos(j.data as RespuestaPasos);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "El técnico experto no pudo armar los pasos.");
+    } finally {
+      setPidiendoPasos(false);
+    }
+  }
 
   useEffect(() => {
     let vivo = true;
@@ -367,19 +394,11 @@ function PestanaTecnico(props: {
     }
   }
 
-  // La primera vez que se abre, consulta sola por el motivo de ingreso.
+  // «Nueva consulta» borra el chat y los pasos. (R7: ya no se consulta sola al abrir.)
   useEffect(() => {
-    props.registrarNueva(() => { setTurnos([]); setError(null); arrancado.current = false; });
+    props.registrarNueva(() => { setTurnos([]); setPasos(null); setError(null); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => {
-    if (arrancado.current || turnos.length || enviando) return;
-    const ingreso = props.ingresaPor.trim();
-    if (!ingreso || /^no disponible$/i.test(ingreso)) return;
-    arrancado.current = true;
-    void enviar(`Motivo de ingreso: «${ingreso}». ¿Qué pruebo primero?`, { auto: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turnos.length]);
 
   async function elegirFoto(archivo: File | undefined) {
     if (!archivo) return;
@@ -392,6 +411,13 @@ function PestanaTecnico(props: {
   return (
     <>
       <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto px-4 py-3.5">
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={() => void sugerirPasos()} disabled={pidiendoPasos}
+            className={`${btn} border-[rgba(215,255,79,.5)] bg-transparent text-[#D7FF4F] hover:bg-[rgba(215,255,79,.08)]`}>
+            <Destello size={13} />{pidiendoPasos ? "Buscando guías…" : pasos ? "Volver a sugerir" : "Sugerir pasos"}
+          </button>
+        </div>
+        {pasos && <PasosCard key={pasos.hora} r={pasos} ordenId={ordenId} onActividad={props.onActividad} />}
         {biblioteca?.probadas.map((e) => (
           <BloqueProbado key={e.id} e={e} ordenId={ordenId} onActividad={props.onActividad} />
         ))}
@@ -454,7 +480,6 @@ function PestanaTecnico(props: {
           <input id="asistente-tecnico" value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Cuenta lo que viste o probaste…" className={`${entrada} h-[34px] flex-1`} />
           <button type="submit" className={`${btnMain} h-[34px] w-[34px] px-0`} aria-label="Enviar" disabled={enviando || !texto.trim()}><IconoEnviar /></button>
         </form>
-        <span className="text-[11px] text-[#B5B5AE]">Primero lo probado en SUPER GEEK · busca en sitios del fabricante y de reparación · cita las fuentes</span>
       </div>
     </>
   );
@@ -526,6 +551,80 @@ function BloqueProbado({ e, ordenId, onActividad }: { e: EntradaManual; ordenId:
         <div className="flex flex-col gap-0.5 text-[#FFB547]"><span className="font-semibold">Marcada para revisar</span><span className="text-xs text-[#B5B5AE]">Sigue con lo que encontré en internet, abajo.</span></div>
       )}
       {error && <span className="text-xs text-[#FFB0A8]">{error}</span>}
+    </section>
+  );
+}
+
+// ─── «Sugerir pasos» (rediseño R7, tablero 9) ────────────────────────────────
+
+function PasosCard({ r, ordenId, onActividad }: { r: RespuestaPasos; ordenId: string; onActividad: () => void }) {
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  async function guardarNota() {
+    setGuardando(true);
+    setAviso(null);
+    try {
+      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/asistente/nota`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texto: textoPlanoPasos(r) }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok || !j.success) throw new Error(j.error || "No se pudo guardar en la Actividad.");
+      onActividad();
+      setAviso("Guardado como nota interna.");
+    } catch (e) {
+      setAviso(e instanceof Error ? e.message : "No se pudo guardar en la Actividad.");
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  return (
+    <section className="flex flex-col gap-3 rounded-xl border border-[#3A3A36] bg-[#191A17] p-3 animate-[sg-entrada_160ms_ease-out]">
+      {r.titulo && <p className="font-bold leading-snug">{r.titulo}</p>}
+      {r.guias.length > 0 && (
+        <div className="flex flex-col">
+          <span className={`${cap} pb-1`}>Guías con fotos</span>
+          {r.guias.map((g) => (
+            <div key={g.url} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 border-t border-[#2C2D29] py-2">
+              <span className="rounded-[5px] bg-[rgba(120,183,255,.12)] px-1.5 py-0.5 text-[10px] font-bold text-[#9CCBFF]">{g.dominio}</span>
+              <span className="truncate" title={g.titulo}>{g.titulo}</span>
+              <a href={g.url} target="_blank" rel="noreferrer" className={btn}>Abrir</a>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex flex-col gap-1.5">
+        <span className={cap}>Pasos clave</span>
+        <ol className="list-decimal space-y-1 pl-5 leading-snug">{r.pasos.map((p, i) => <li key={i}>{p}</li>)}</ol>
+      </div>
+      {r.cuidado && (
+        <div className="flex items-start gap-2 rounded-lg border border-[rgba(255,181,71,.35)] bg-[rgba(255,181,71,.08)] px-2.5 py-2 leading-snug">
+          <span><b className="text-[#FFB547]">Cuidado: </b>{r.cuidado}</span>
+        </div>
+      )}
+      {(r.tiempo || r.repuestos.length > 0) && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+          {r.tiempo && <span><span className={cap}>Tiempo estimado </span>{r.tiempo}</span>}
+          {r.repuestos.length > 0 && (
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className={cap}>En inventario</span>
+              {r.repuestos.map((x) => (
+                <span key={x.sku} className="inline-flex items-center gap-1.5" title={x.unidades > 1 ? `${x.unidades} unidades` : "1 unidad"}>
+                  {x.nombre}
+                  <span className="rounded-[5px] border border-[#4A4A45] px-1.5 font-mono text-[11px] font-semibold">{x.sku}</span>
+                </span>
+              ))}
+            </span>
+          )}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5 border-t border-[#2C2D29] pt-2.5">
+        {aviso && <span className="text-xs text-[#B5B5AE]">{aviso}</span>}
+        <button type="button" className={`${btn} ml-auto`} disabled={guardando} onClick={() => void guardarNota()}>
+          {guardando ? "Guardando…" : "Guardar como nota interna"}
+        </button>
+      </div>
     </section>
   );
 }

@@ -13,7 +13,9 @@ import { listarLineas } from "@/lib/tecnicos/presupuesto/airtable";
 import { revisarEntrega } from "@/lib/entrega/servidor";
 import { fetchCatalogoServicios } from "@/lib/tecnicos/airtable";
 import { coincidenciasParaOrden } from "@/lib/manual-tecnico/servidor";
-import { leerCatalogo } from "@/lib/tecnicos/motivos/servidor";
+import { leerCatalogo, motivosDeOrden } from "@/lib/tecnicos/motivos/servidor";
+import { buscarRepuestosStockDisponibles } from "@/lib/tecnicos/repuestos-v2";
+import { agruparInventario, busquedaInventario, nombreCoincide, type RepuestoInventario } from "./pasos";
 import { dijoElCliente, textoMotivos } from "@/lib/tecnicos/motivos/reglas";
 import type { DatosOrdenIA, DatosTecnicoIA, EntradaHistorialIA, LineaIA } from "./contexto";
 import { notasDelHistorial } from "./contexto";
@@ -167,4 +169,23 @@ export async function leerOrdenParaTarjeta(ordenId: string) {
   const base = await leerBase(ordenId);
   const historial = await leerHistorial(base.historialIds);
   return { codigo: base.codigo, estado: base.estado, equipo: base.equipo, ingresaPor: base.ingresaPor, diagnostico: base.diagnostico, historial };
+}
+
+// ─── «Sugerir pasos» (rediseño R7, tablero 9) ────────────────────────────────
+
+/** Nombres de los chips del motivo de la orden (vacío si es una orden sin chips). */
+export async function motivosParaPasos(ordenId: string): Promise<string[]> {
+  return (await motivosDeOrden(ordenId).catch(() => ({ motivos: [] as Array<{ nombre: string }> }))).motivos.map((m) => m.nombre);
+}
+
+/** Repuestos o insumos que la IA dijo que suelen hacer falta, buscados en el inventario (SKU real). */
+export async function repuestosParaPasos(buscar: string[]): Promise<RepuestoInventario[]> {
+  const encontrados: Array<{ sku: string; nombre: string; precioVentaFinal: number | null }> = [];
+  for (const termino of buscar.slice(0, 3)) {
+    const b = busquedaInventario(termino);
+    if (!b) continue;
+    const items = await buscarRepuestosStockDisponibles(b.palabra).catch(() => []);
+    encontrados.push(...items.filter((it) => nombreCoincide(it.nombre, b.todas)));
+  }
+  return agruparInventario(encontrados, 4);
 }
