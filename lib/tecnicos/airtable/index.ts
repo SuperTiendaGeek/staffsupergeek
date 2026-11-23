@@ -193,6 +193,8 @@ export interface OrdenCreadaResult {
   ok: true;
   ordenId: string;
   airtableRecordId: string;
+  /** Rediseño R5: el cliente de la orden (para su ficha de equipo). */
+  clienteRecordId?: string;
 }
 
 export interface FetchOrdenesPageOptions {
@@ -1553,6 +1555,7 @@ export const createOrdenReparacion = async ({
     ok: true,
     ordenId: safeString(createdOrden.fields?.["ID"], createdOrden.id),
     airtableRecordId: createdOrden.id,
+    clienteRecordId,
   };
 };
 

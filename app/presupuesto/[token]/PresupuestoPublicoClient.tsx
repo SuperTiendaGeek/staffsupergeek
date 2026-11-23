@@ -28,6 +28,8 @@ type Vista = {
   totalPendiente: number;
   /** Rediseño R3: lo que el taller escribió para el cliente. */
   novedades?: Array<{ fecha: string; texto: string }>;
+  /** Rediseño R5: servicios anteriores de este equipo. */
+  historiaEquipo?: Array<{ codigo: string; fecha: string; motivo: string }>;
   /** Maquetas 7a/7b (17-nov): la cuenta de la orden y la caja de cobro en línea. */
   cuenta?: { total: number; pagado: number; falta: number; faltaRepuestos: number } | null;
   pagoEnLinea?: { disponible: boolean; opciones: OpcionDePago[]; ultimo: PagoVisible | null; medios?: MediosPago };
@@ -655,6 +657,20 @@ export function PresupuestoPublicoClient({ token }: { token: string }) {
                 <li key={i} className="text-sm leading-relaxed text-[#E5E5E0]">
                   <span className="whitespace-pre-line">{n.texto}</span>
                   {n.fecha && <span className="ml-1.5 text-xs text-[#8A8A80]">{new Date(n.fecha).toLocaleDateString("es-EC", { timeZone: "America/Guayaquil", day: "numeric", month: "short" })}</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {(vista.historiaEquipo?.length ?? 0) > 0 && (
+          <section className="rounded-2xl border border-[#3A3A36] bg-[#242422] p-4">
+            <h2 className="text-sm font-bold text-[#F5F5F5]">Historia de tu equipo</h2>
+            <ul className="mt-2 space-y-1.5">
+              {vista.historiaEquipo!.map((h) => (
+                <li key={h.codigo} className="flex gap-3 text-sm">
+                  <span className="shrink-0 tabular-nums text-[#8A8A80]">{h.fecha ? new Date(h.fecha).toLocaleDateString("es-EC", { timeZone: "America/Guayaquil", day: "numeric", month: "short", year: "numeric" }) : ""}</span>
+                  <span className="min-w-0 text-[#E5E5E0]">{h.motivo || h.codigo}</span>
                 </li>
               ))}
             </ul>

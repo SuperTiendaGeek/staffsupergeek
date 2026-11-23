@@ -28,6 +28,7 @@ import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirE
 import { EntregarClientePanel } from "@/components/tecnicos/ordenes/EntregarClientePanel";
 import { RegresoEquipoDialog } from "@/components/tecnicos/ordenes/RegresoEquipoDialog";
 import { ActividadCard } from "@/components/tecnicos/ordenes/ActividadCard";
+import { EquipoFicha } from "@/components/tecnicos/ordenes/EquipoFicha";
 import { ReabrirOrdenDialog } from "@/components/tecnicos/ordenes/ReabrirOrdenDialog";
 import { esOrdenCerrada } from "@/lib/tecnicos/regreso/reglas";
 import { avisoAbonoDeMas } from "@/lib/cobros/aviso-abono";
@@ -1843,18 +1844,14 @@ export function OrdenDetalleClient() {
                     <div className="min-w-0 border-t border-[var(--sg-divider)] pt-3 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-text-muted)]">Dispositivo</p>
                       <div className="mt-1.5 space-y-2">
-                        <div className="flex items-start gap-2">
-                          <DesktopIcon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--sg-text-muted)]" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[10px] uppercase tracking-wide text-[var(--sg-text-muted)]">Equipo</p>
-                            <InlineEditField
-                              value={orden.equipo}
-                              onSave={(v) => saveOrdenField("equipo", v)}
-                              required
-                              placeholder="Sin equipo"
-                            />
-                          </div>
-                        </div>
+                        {/* Rediseño R4 + R5: ficha del equipo con contraseña oculta e historia. */}
+                        <EquipoFicha
+                          ordenId={orden.recordId}
+                          onCambio={async () => {
+                            setActividadVersion((v) => v + 1);
+                            await fetchData({ showLoading: false, preserveError: true });
+                          }}
+                        />
                         <div className="flex items-start gap-2">
                           <UsbIcon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--sg-text-muted)]" />
                           <div className="min-w-0 flex-1">
@@ -1871,34 +1868,21 @@ export function OrdenDetalleClient() {
                   </div>
                 </section>
 
-            <section className="grid gap-2 md:grid-cols-2">
-              <div className="relative overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2.5 shadow-[var(--sg-shadow-card)]">
-                <div className="absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-[var(--sg-lime)]" />
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]">Motivo de ingreso</p>
-                <div className="mt-1">
-                  <InlineEditField
-                    value={orden.ingresaPor === "No disponible" ? "" : orden.ingresaPor}
-                    onSave={(v) => saveOrdenField("ingresaPor", v)}
-                    placeholder="No disponible"
-                  />
-                </div>
+            {/* Rediseño R5: la «Nota interna» ya no se usa: su contenido pasó a la
+                Actividad y la contraseña a la ficha del equipo (script R5). */}
+            <section className="relative overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2.5 shadow-[var(--sg-shadow-card)]">
+              <div className="absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-[var(--sg-lime)]" />
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]">Motivo de ingreso</p>
+              <div className="mt-1">
+                <InlineEditField
+                  value={orden.ingresaPor === "No disponible" ? "" : orden.ingresaPor}
+                  onSave={(v) => saveOrdenField("ingresaPor", v)}
+                  placeholder="No disponible"
+                />
               </div>
-
-              <div className="relative overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-3 py-2.5 shadow-[var(--sg-shadow-card)]">
-                <div className="absolute inset-y-3 left-0 w-0.5 rounded-r-full bg-[var(--sg-lime)]" />
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]">Nota interna</p>
-                <div className="mt-1">
-                  <InlineEditField
-                    value={orden.notaInterna === "No disponible" ? "" : orden.notaInterna}
-                    onSave={saveNotaInterna}
-                    multiline
-                    placeholder="Sin nota interna"
-                  />
-                </div>
-                {orden.recomendaciones && (
-                  <p className="mt-1.5 text-xs text-[var(--sg-text-muted)]">Recomendaciones: {orden.recomendaciones}</p>
-                )}
-              </div>
+              {orden.recomendaciones && (
+                <p className="mt-1.5 text-xs text-[var(--sg-text-muted)]">Recomendaciones: {orden.recomendaciones}</p>
+              )}
             </section>
 
             {/* Rediseño R3: historial, notas y mensajes al cliente en una sola

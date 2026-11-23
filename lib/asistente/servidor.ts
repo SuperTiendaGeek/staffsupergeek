@@ -47,7 +47,9 @@ async function leerBase(ordenId: string): Promise<CamposBase> {
     ingresaPor: firstString(f["Ingresa Por"]),
     accesorios: firstString(f["Accesorios"]),
     diagnostico: firstString(f["Diagnostico Inicial"]),
-    notaInterna: firstString(f["Nota interna"]),
+    // Rediseño R5: la nota interna pasó a la Actividad (la IA la lee del historial)
+    // y la contraseña a la ficha del equipo, que la IA nunca ve.
+    notaInterna: "",
     entregadaEl: firstString(f["Fecha de entrega"]) || null,
     historialIds: linkedIds(f["Historial de Estados"]),
   };
