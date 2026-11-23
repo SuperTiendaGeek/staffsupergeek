@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { CedulaEnUsoError, createOrdenReparacion, fetchOrdenesPage } from "@/lib/tecnicos/airtable";
 import { fichaParaOrdenNueva } from "@/lib/tecnicos/equipos/servidor";
+import { ErrorMotivo, camposDeMotivos } from "@/lib/tecnicos/motivos/servidor";
+import { getSessionFromCookie } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -66,6 +68,10 @@ export async function POST(request: Request) {
           ingresaPor: String(body.orden.ingresaPor ?? "").trim(),
         }
       : null;
+  // Rediseño R7: motivo de ingreso con chips (+ lo que dijo el cliente) y la contraseña del equipo.
+  const motivoIds: unknown = body?.orden?.motivoIds;
+  const clienteDice = typeof body?.orden?.clienteDice === "string" ? body.orden.clienteDice.trim().slice(0, 500) : "";
+  const contrasena = typeof body?.orden?.contrasena === "string" ? body.orden.contrasena.trim().slice(0, 120) : "";
 
   if (!clienteId && !nuevoCliente?.nombre) {
     return NextResponse.json(
@@ -81,23 +87,39 @@ export async function POST(request: Request) {
     );
   }
 
+  let idsMotivos: string[] | undefined;
+  if (motivoIds !== undefined) {
+    try {
+      const m = await camposDeMotivos(motivoIds, clienteDice);
+      idsMotivos = m.fields["Motivos"] as string[];
+      orden.ingresaPor = String(m.fields["Ingresa Por"]);
+    } catch (e) {
+      if (e instanceof ErrorMotivo) return NextResponse.json({ success: false, error: e.message }, { status: e.status });
+      throw e;
+    }
+  }
+
   if (!orden.ingresaPor) {
     return NextResponse.json(
-      { success: false, error: "Ingresa Por es obligatorio" },
+      { success: false, error: "Elige al menos un motivo de ingreso" },
       { status: 400 }
     );
   }
+
+  const session = await getSessionFromCookie();
+  const usuario = { nombre: session?.user.nombre ?? null, email: session?.user.email ?? null, id: session?.user.userId ?? null };
 
   try {
     const created = await createOrdenReparacion({
       clienteId,
       nuevoCliente,
       orden,
+      enlaces: idsMotivos ? { motivoIds: idsMotivos } : null,
     });
     // Rediseño R5: la ficha del equipo sale sola del texto (o se reusa la del
     // cliente si ya trajo ese equipo). Nunca frena el registro.
     if (created.clienteRecordId && orden?.equipo) {
-      await fichaParaOrdenNueva({ ordenId: created.airtableRecordId, clienteId: created.clienteRecordId, equipoTexto: orden.equipo, creadoPor: "Registro de orden" })
+      await fichaParaOrdenNueva({ ordenId: created.airtableRecordId, clienteId: created.clienteRecordId, equipoTexto: orden.equipo, creadoPor: "Registro de orden", contrasena, usuario })
         .catch((e) => console.error("[ordenes POST] ficha del equipo", e));
     }
     return NextResponse.json({ success: true, ...created }, { status: 201 });

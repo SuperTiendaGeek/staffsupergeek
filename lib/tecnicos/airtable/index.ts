@@ -186,6 +186,8 @@ export interface NuevaOrdenInput {
     ordenAnteriorId?: string | null;
     tipoRegreso?: string | null;
     fichaEquipoIds?: string[];
+    /** Rediseño R7: chips del motivo de ingreso. */
+    motivoIds?: string[];
   } | null;
 }
 
@@ -1552,6 +1554,7 @@ export const createOrdenReparacion = async ({
   if (enlaces?.ordenAnteriorId) fields["Orden anterior"] = [enlaces.ordenAnteriorId];
   if (enlaces?.tipoRegreso) fields["Tipo de regreso"] = enlaces.tipoRegreso;
   if (enlaces?.fichaEquipoIds?.length) fields["Ficha del equipo"] = enlaces.fichaEquipoIds;
+  if (enlaces?.motivoIds?.length) fields["Motivos"] = enlaces.motivoIds;
 
   const createdOrden = await createRecord(AIRTABLE_TABLES.ordenes, fields, client);
   return {

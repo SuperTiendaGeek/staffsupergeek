@@ -32,6 +32,7 @@ import { EquipoFicha } from "@/components/tecnicos/ordenes/EquipoFicha";
 import { ReabrirOrdenDialog } from "@/components/tecnicos/ordenes/ReabrirOrdenDialog";
 import { esOrdenCerrada } from "@/lib/tecnicos/regreso/reglas";
 import { ResponsableSelector } from "@/components/tecnicos/ordenes/ResponsableSelector";
+import { MotivoIngresoCard } from "@/components/tecnicos/motivos/MotivoIngresoCard";
 import { OrdenEtapas } from "@/components/tecnicos/ordenes/OrdenEtapas";
 import { Desplegable, OPCION_MENU } from "@/components/tecnicos/ordenes/Desplegable";
 import { diasEnTaller, fechaCorta, pasosDeLaOrden, queSigue, type ResumenPresupuesto } from "@/lib/tecnicos/orden/etapas";
@@ -510,9 +511,6 @@ const COLOR_ESTADO: Record<string, string> = {
   "Esperando Respuesta": "!border-[rgba(255,181,71,.45)] !bg-transparent !text-[#FFB547]",
   Completado: "!border-[rgba(86,227,164,.45)] !bg-transparent !text-[#56E3A4]",
 };
-
-/** Campos viejos que vienen con "-", "\-" o "No disponible": no se muestran. */
-const conTexto = (v?: string | null) => !!v && !/^\s*(\\?-|no disponible)\s*$/i.test(v);
 
 // ─── Page component ───────────────────────────────────────────────────────────
 
@@ -1325,25 +1323,16 @@ export function OrdenDetalleClient() {
 
             <div className="grid items-start gap-2.5 xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.75fr)]">
               <div className="min-w-0 space-y-2.5">
-                {/* Lo primero que mira el técnico (flujo del dueño, paso 2). Los chips llegan con R7. */}
-                <section className="relative overflow-hidden rounded-xl border border-[var(--sg-border)] bg-[var(--sg-card)] px-4 py-3 shadow-[var(--sg-shadow-card)]">
-                  <div className="absolute inset-y-0 left-0 w-[3px] bg-[var(--sg-lime)]" />
-                  <p className="text-[11px] font-semibold uppercase tracking-wider text-[var(--sg-lime)]">Motivo de ingreso</p>
-                  <div className="mt-1">
-                    <InlineEditField
-                      value={orden.ingresaPor === "No disponible" ? "" : orden.ingresaPor}
-                      onSave={(v) => saveOrdenField("ingresaPor", v)}
-                      placeholder="Sin motivo"
-                      multiline
-                    />
-                  </div>
-                  {conTexto(orden.diagnosticoInicial) && (
-                    <p className="mt-1.5 text-xs text-[var(--sg-text-primary)]"><span className="font-semibold text-[var(--sg-text-muted)]">Diagnóstico </span>{orden.diagnosticoInicial}</p>
-                  )}
-                  {conTexto(orden.recomendaciones) && (
-                    <p className="mt-1 text-xs text-[var(--sg-text-secondary)]"><span className="font-semibold text-[var(--sg-text-muted)]">Recomendaciones </span>{orden.recomendaciones}</p>
-                  )}
-                </section>
+                {/* Lo primero que mira el técnico (flujo del dueño, paso 2): chips + lo que dijo el cliente (R7). */}
+                <MotivoIngresoCard
+                  ordenId={orden.recordId}
+                  diagnostico={orden.diagnosticoInicial}
+                  recomendaciones={orden.recomendaciones}
+                  onCambio={() => {
+                    setActividadVersion((v) => v + 1);
+                    void fetchData({ showLoading: false, preserveError: true });
+                  }}
+                />
 
                 {/* Trabajos: el único lugar para agregar, aprobar, quitar y modificar
                     cargos (fase 4) y para marcar el avance de cada uno (R2). */}

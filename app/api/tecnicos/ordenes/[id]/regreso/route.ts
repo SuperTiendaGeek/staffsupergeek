@@ -32,12 +32,13 @@ export async function POST(request: Request, { params }: Params) {
   const { response, session } = await requireTecnicosSession();
   if (response) return response;
   const { id } = await params;
-  const body = (await request.json().catch(() => ({}))) as { tipo?: unknown; motivo?: unknown; queFalloClave?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { tipo?: unknown; motivo?: unknown; motivoIds?: unknown; queFalloClave?: unknown };
   try {
     const data = await registrarRegreso({
       ordenId: id,
       tipo: body.tipo,
       motivo: body.motivo,
+      motivoIds: body.motivoIds,
       queFalloClave: typeof body.queFalloClave === "string" ? body.queFalloClave : null,
       usuario: { nombre: session.user.nombre ?? null, email: session.user.email ?? null, id: session.user.userId ?? null },
     });

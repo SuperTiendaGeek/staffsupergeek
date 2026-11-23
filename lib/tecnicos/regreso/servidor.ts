@@ -3,6 +3,7 @@ import "server-only";
 // Orden cerrada y «Regresó el equipo» — lado servidor (rediseño R6).
 // Las reglas están en ./reglas.ts; aquí solo se lee y se escribe en Airtable.
 
+import { ErrorMotivo, camposDeMotivos } from "@/lib/tecnicos/motivos/servidor";
 import { withLock } from "@/lib/concurrencia";
 import { ids, porIds, texto } from "@/lib/estado-cuenta/airtable";
 import { origenesDeGarantia } from "@/lib/garantias/servidor";
@@ -82,13 +83,27 @@ export async function registrarRegreso(o: {
   ordenId: string;
   tipo: unknown;
   motivo: unknown;
+  /** Rediseño R7: chips del motivo (el texto pasa a ser «lo que dijo el cliente»). */
+  motivoIds?: unknown;
   queFalloClave?: string | null;
   usuario: Usuario;
 }): Promise<{ ordenId: string; codigo: string; tipo: TipoRegreso }> {
   return withLock(`regreso:${o.ordenId}`, async () => {
     const orden = await leerOrdenBasica(o.ordenId);
     if (!orden) throw new ErrorRegreso("Orden no encontrada.", 404);
-    const r = revisarRegreso({ estadoActual: orden.estado, tipo: o.tipo, motivo: o.motivo });
+    let motivoIds: string[] | undefined;
+    let motivo = o.motivo;
+    if (o.motivoIds !== undefined) {
+      try {
+        const m = await camposDeMotivos(o.motivoIds, typeof o.motivo === "string" ? o.motivo : "");
+        motivoIds = m.fields["Motivos"] as string[];
+        motivo = m.fields["Ingresa Por"];
+      } catch (e) {
+        if (e instanceof ErrorMotivo) throw new ErrorRegreso(e.message, e.status);
+        throw e;
+      }
+    }
+    const r = revisarRegreso({ estadoActual: orden.estado, tipo: o.tipo, motivo });
     if (!r.ok) throw new ErrorRegreso(r.error, r.status);
     const tipo = r.tipo as TipoRegreso;
     if (!orden.clienteId) throw new ErrorRegreso("La orden no tiene cliente: no se puede crear la nueva.", 409);
@@ -103,7 +118,7 @@ export async function registrarRegreso(o: {
     const creada = await createOrdenReparacion({
       clienteId: orden.clienteId,
       orden: { equipo: orden.equipo || "Equipo", ingresaPor: r.motivo as string },
-      enlaces: { ordenAnteriorId: orden.id, tipoRegreso: tipo, fichaEquipoIds: orden.fichaEquipoIds },
+      enlaces: { ordenAnteriorId: orden.id, tipoRegreso: tipo, fichaEquipoIds: orden.fichaEquipoIds, motivoIds },
     });
 
     // Rediseño R5: si la orden vieja no tenía ficha, la nueva la saca del texto.
