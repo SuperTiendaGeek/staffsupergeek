@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CONFIG_INICIAL, proximoDiaHabil, textoFecha, type AccionAlerta, type Alerta } from "@/lib/tecnicos/alertas/reglas";
+import { CONFIG_INICIAL, proximoDiaHabil, textoFecha, type AccionAlerta, type Alerta, type Horario } from "@/lib/tecnicos/alertas/reglas";
 import { avisarCambioAlertas } from "./tipos";
 
 // Franja de alerta dentro de la orden (rediseño R10, tablero 10 C y E): una
@@ -22,6 +22,8 @@ export function AlertaFranja({ ordenId, refrescar, onAccion }: {
   onAccion: (accion: Exclude<AccionAlerta, null>) => void;
 }) {
   const [alerta, setAlerta] = useState<Alerta | null>(null);
+  // Horario guardado en Ajustes (para «Mañana» y el próximo día hábil).
+  const [horario, setHorario] = useState<Horario>(CONFIG_INICIAL.horario);
   const [posponiendo, setPosponiendo] = useState(false);
   const [fecha, setFecha] = useState("");
   const [otra, setOtra] = useState(false);
@@ -33,7 +35,11 @@ export function AlertaFranja({ ordenId, refrescar, onAccion }: {
     let vivo = true;
     fetch(`/api/tecnicos/ordenes/${encodeURIComponent(ordenId)}/alerta`, { cache: "no-store" })
       .then((r) => r.json())
-      .then((j) => { if (vivo && j.success) setAlerta(j.data as Alerta | null); })
+      .then((j) => {
+        if (!vivo || !j.success) return;
+        setAlerta(j.data as Alerta | null);
+        if (j.horario) setHorario(j.horario as Horario);
+      })
       .catch(() => {});
     return () => { vivo = false; };
   }, [ordenId, refrescar]);
@@ -41,8 +47,10 @@ export function AlertaFranja({ ordenId, refrescar, onAccion }: {
   if (!alerta || alerta.nivel === "alDia") return null;
 
   const ahora = new Date();
-  const manana = proximoDiaHabil(ahora, CONFIG_INICIAL.horario, 1);
-  const pasado = proximoDiaHabil(ahora, CONFIG_INICIAL.horario, 2);
+  const manana = proximoDiaHabil(ahora, horario, 1);
+  const pasado = proximoDiaHabil(ahora, horario, 2);
+  // El error se evita donde nace: «Posponer» se activa con fecha y motivo.
+  const listo = /^\d{4}-\d{2}-\d{2}$/.test(fecha) && fecha >= manana && motivo.trim().length >= 5;
   const roja = alerta.nivel === "atencion";
   const texto = alerta.clave === "repuestoAtrasado" ? alerta.texto : `${alerta.texto} · hace ${alerta.hace}`;
 
@@ -91,7 +99,7 @@ export function AlertaFranja({ ordenId, refrescar, onAccion }: {
         )}
       </div>
       {posponiendo && (
-        <form onSubmit={(e) => { e.preventDefault(); void posponer(); }} className="mt-2 flex flex-wrap items-center gap-2 animate-[sg-entrada_140ms_ease-out]">
+        <form onSubmit={(e) => { e.preventDefault(); if (listo) void posponer(); }} className="mt-2 flex flex-wrap items-center gap-2 animate-[sg-entrada_140ms_ease-out]">
           <div role="radiogroup" aria-label="Hasta" className="inline-flex overflow-hidden rounded-lg border border-[#3A3A36]">
             <button type="button" role="radio" aria-checked={!otra && fecha === manana} onClick={() => { setOtra(false); setFecha(manana); }} className={seg(!otra && fecha === manana)}>Mañana</button>
             <button type="button" role="radio" aria-checked={!otra && fecha === pasado} onClick={() => { setOtra(false); setFecha(pasado); }} className={`${seg(!otra && fecha === pasado)} border-l border-[#3A3A36] capitalize`}>{textoFecha(pasado).replace(/ \S+$/, "")}</button>
@@ -101,9 +109,9 @@ export function AlertaFranja({ ordenId, refrescar, onAccion }: {
             <input type="date" value={fecha} min={manana} onChange={(e) => setFecha(e.target.value)} aria-label="Fecha"
               className="h-7 rounded-lg border border-[#3A3A36] bg-[#151613] px-2 text-xs text-[#F0F0EC] outline-none focus:border-[#D7FF4F] [color-scheme:dark]" />
           )}
-          <input autoFocus value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (lo ve el equipo)" aria-label="Motivo"
+          <input autoFocus value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (lo ve el equipo)" aria-label="Motivo" maxLength={200}
             className="h-[30px] min-w-[14rem] flex-1 rounded-lg border border-[#3A3A36] bg-[#151613] px-2.5 text-sm text-[#F0F0EC] outline-none placeholder:text-[#8A8A84] focus:border-[#D7FF4F]" />
-          <button type="submit" disabled={guardando} className={`${btn} border-[#D7FF4F] bg-[#D7FF4F] text-[#151613]`}>{guardando ? "Guardando…" : "Posponer"}</button>
+          <button type="submit" disabled={guardando || !listo} title={listo ? undefined : "Elige la fecha y escribe el motivo"} className={`${btn} border-[#D7FF4F] bg-[#D7FF4F] text-[#151613]`}>{guardando ? "Guardando…" : "Posponer"}</button>
           <button type="button" onClick={() => setPosponiendo(false)} className="text-xs font-semibold text-[#B5B5AE] hover:text-white">Cancelar</button>
           {error && <span role="alert" className="w-full text-xs text-[#FF9C94] animate-[sg-sacudir_240ms_ease-out]">{error}</span>}
         </form>

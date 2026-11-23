@@ -16,7 +16,8 @@ assert(marco.includes('apps.some((a) => a.id === "tecnicos") ? <AlertasBarra />'
 const barra = leer("components/tecnicos/alertas/AlertasBarra.tsx");
 assert(barra.includes("setInterval") && barra.includes("visibilitychange") && barra.includes("EVENTO_ALERTAS"), "la barra se actualiza sola, al volver a la pestaña y al cambiar algo en una orden");
 assert(barra.includes('href="/tecnicos/alertas"') && barra.includes("datos.esAdmin &&"), "«Ajustes» solo para administrador");
-assert(!/animate-\[sg-latido[^\]]*infinite/.test(barra), "el latido del botón rojo es una sola vez (sin bucle)");
+assert(!/animate-\[sg-latido[^\]]*infinite/.test(barra) && barra.includes("sg-latido_400ms"), "el latido del botón rojo es una sola vez y dura 400 ms");
+assert(barra.includes("No se pudieron leer las alertas"), "si no se pueden leer las alertas, se ve (no parece «todo al día»)");
 
 // Dentro de la orden
 const pantalla = leer("app/tecnicos/ordenes/[id]/OrdenDetalleClient.tsx");
@@ -24,6 +25,8 @@ assert(/!cerrada && \(?\s*<AlertaFranja/.test(pantalla), "la franja de alerta es
 assert(pantalla.includes("avisarCambioAlertas()"), "cambiar el responsable avisa a la barra");
 const franja = leer("components/tecnicos/alertas/AlertaFranja.tsx");
 assert(franja.includes("JSON.stringify({ hasta: fecha, motivo })"), "posponer manda fecha y motivo");
+assert(franja.includes("disabled={guardando || !listo}") && franja.includes("motivo.trim().length >= 5"), "«Posponer» se activa solo con fecha y motivo");
+assert(franja.includes("proximoDiaHabil(ahora, horario, 1)") && leer("app/api/tecnicos/ordenes/[id]/alerta/route.ts").includes("horario: config.horario"), "los atajos usan el horario guardado en Ajustes");
 const actividad = leer("components/tecnicos/ordenes/ActividadCard.tsx");
 assert(actividad.includes("pedirNota"), "«Anotar avance» abre la nota interna de la Actividad");
 

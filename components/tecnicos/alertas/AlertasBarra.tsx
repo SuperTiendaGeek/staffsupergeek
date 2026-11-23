@@ -24,6 +24,7 @@ export function AlertasBarra() {
   const [abierto, setAbierto] = useState(false);
   const [vista, setVista] = useState<"mias" | "todas">("mias");
   const [latido, setLatido] = useState(0);
+  const [fallo, setFallo] = useState(false);
   const anterior = useRef<number | null>(null);
   const caja = useRef<HTMLDivElement>(null);
 
@@ -31,13 +32,14 @@ export function AlertasBarra() {
     try {
       const r = await fetch("/api/tecnicos/alertas", { cache: "no-store" });
       const j = await r.json();
-      if (!j.success) return;
+      if (!j.success) { setFallo(true); return; }
       const d = j.data as DatosAlertas;
       // Late una vez solo cuando SUBE el número de rojas (no en cada lectura).
       if (anterior.current !== null && d.resumen.atencion > anterior.current) setLatido((n) => n + 1);
       anterior.current = d.resumen.atencion;
       setDatos(d);
-    } catch { /* sin red: se intenta en la próxima vuelta */ }
+      setFallo(false);
+    } catch { setFallo(true); /* se intenta otra vez en la próxima vuelta */ }
   }, []);
 
   useEffect(() => {
@@ -58,6 +60,14 @@ export function AlertasBarra() {
     return () => { document.removeEventListener("mousedown", fuera); document.removeEventListener("keydown", tecla); };
   }, [abierto]);
 
+  if (!datos && fallo) {
+    return (
+      <button type="button" onClick={() => void cargar()} title="No se pudieron leer las alertas · tocar para reintentar" aria-label="Reintentar alertas"
+        className="inline-flex h-9 items-center gap-1 rounded-lg border border-[#3A3A36] px-2.5 text-xs font-bold text-[#8A8A84] transition hover:text-[#F0F0EC]">
+        <Campana />!
+      </button>
+    );
+  }
   if (!datos || (datos.resumen.atencion === 0 && datos.resumen.porVencer === 0)) return null;
   const { resumen, filas, yo } = datos;
 
@@ -76,7 +86,7 @@ export function AlertasBarra() {
     <div ref={caja} className="relative flex items-center gap-1.5">
       {resumen.atencion > 0 && (
         <button key={latido} type="button" onClick={abrir} aria-expanded={abierto} aria-label={`${resumen.atencion} órdenes necesitan atención`} title="Necesitan atención"
-          className={`inline-flex h-9 items-center gap-1.5 rounded-lg border border-[rgba(255,122,112,.6)] bg-[rgba(255,122,112,.12)] px-2.5 text-xs font-bold text-[#FF9C94] transition hover:bg-[rgba(255,122,112,.2)] ${latido ? "animate-[sg-latido_600ms_ease-out]" : ""}`}>
+          className={`inline-flex h-9 items-center gap-1.5 rounded-lg border border-[rgba(255,122,112,.6)] bg-[rgba(255,122,112,.12)] px-2.5 text-xs font-bold text-[#FF9C94] transition hover:bg-[rgba(255,122,112,.2)] ${latido ? "animate-[sg-latido_400ms_ease-out]" : ""}`}>
           <Campana />{resumen.atencion}
         </button>
       )}

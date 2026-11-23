@@ -28,6 +28,13 @@ assert(primerNombre("Maritza López") === "Maritza", "la cabecera muestra solo e
   ]);
   assert(ops.map((o) => o.id).join(",") === "recA,recD,recE,recZ", "solo activos de Técnicos o administradores, en orden alfabético");
   assert(ops.find((o) => o.id === "recE")?.nombre === "sin-nombre@sg.ec", "sin nombre se muestra el correo");
+  // Datos reales (23-nov): Airtable guarda la etiqueta «Técnicos», con tilde y mayúscula.
+  const reales = opcionesResponsable([
+    u({ id: "recEnrique", nombre: "Enrique Martinez", rol: "Técnico", appsPermitidas: ["Técnicos", "Horarios"] }),
+    u({ id: "recMaritza", nombre: "Maritza Moreno", rol: "Staff", appsPermitidas: ["Técnicos", "Finanzas"] }),
+    u({ id: "recRoberto", nombre: "Roberto", rol: "Proveedor", appsPermitidas: ["Shipping"] }),
+  ]);
+  assert(reales.map((o) => o.id).join(",") === "recEnrique,recMaritza", "con la etiqueta real «Técnicos» salen Enrique y Maritza (no el proveedor)");
 
   assert(revisarAsignacion({ usuarioId: "recA" }, ops).ok, "asignar a alguien de la lista");
   const nul = revisarAsignacion({ usuarioId: null }, ops);

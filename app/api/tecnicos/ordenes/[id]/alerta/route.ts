@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
-import { ErrorAlerta, alertaDeOrden, posponerAlerta } from "@/lib/tecnicos/alertas/servidor";
+import { ErrorAlerta, alertaDeOrden, leerConfigAlertas, posponerAlerta } from "@/lib/tecnicos/alertas/servidor";
 
 // Alerta de una orden (rediseño R10): franja bajo la cabecera.
-//   GET  → alerta (o null)
+//   GET  → alerta (o null) + horario guardado (para los atajos de posponer)
 //   POST { hasta: "aaaa-mm-dd", motivo } → posponer; queda en la Actividad.
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,8 @@ export async function GET(_request: Request, { params }: Params) {
   if (response) return response;
   const { id } = await params;
   try {
-    return NextResponse.json({ success: true, data: await alertaDeOrden(id) }, { headers: { "Cache-Control": "no-store" } });
+    const [alerta, config] = await Promise.all([alertaDeOrden(id), leerConfigAlertas()]);
+    return NextResponse.json({ success: true, data: alerta, horario: config.horario }, { headers: { "Cache-Control": "no-store" } });
   } catch (e) {
     if (e instanceof ErrorAlerta) return NextResponse.json({ success: false, error: e.message }, { status: e.status });
     console.error("[alerta GET]", e);

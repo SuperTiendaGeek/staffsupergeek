@@ -107,7 +107,6 @@ export function AjustesAlertasClient() {
     <div className={`${styles.theme} max-w-[640px] space-y-3 text-[13px] text-[#F0F0EC]`}>
       <div className="flex items-baseline gap-2 px-0.5">
         <h1 className="text-sm font-bold">Alertas de órdenes</h1>
-        <span className="text-xs text-[#B5B5AE]">«1 d» = una jornada de lunes a viernes</span>
         {!esAdmin && <span className="ml-auto text-xs text-[#B5B5AE]">Solo un administrador los cambia</span>}
       </div>
       <section className="flex flex-wrap items-center gap-2.5 rounded-xl border border-[#3A3A36] bg-[#1E1F1C] px-3.5 py-2.5">
@@ -133,7 +132,9 @@ export function AjustesAlertasClient() {
 
       <section className="overflow-hidden rounded-xl border border-[#3A3A36] bg-[#1E1F1C]">
         <div className={`${fila} border-t-0 pb-1.5 pt-2.5 text-[11px] font-semibold text-[#B5B5AE]`}>
-          <span>SITUACIÓN</span><span className="text-right">POR VENCER</span><span className="text-right">ATENCIÓN</span>
+          <span>SITUACIÓN</span>
+          <span className="cursor-help text-right" title="Ámbar. «h» = horas del horario · «d» = jornadas de lunes a viernes">POR VENCER</span>
+          <span className="cursor-help text-right" title="Rojo. «h» = horas del horario · «d» = jornadas de lunes a viernes">ATENCIÓN</span>
         </div>
         {CLAVES_CON_PLAZO.map((k) => (
           <div key={k} className={fila}>

@@ -28,7 +28,18 @@ const p1 = planAlertas({ personas, ordenes: [orden({ historial: [
 ] })] });
 const a1 = p1.acciones[0];
 assert(a1.campos[CAMPO_MOVIMIENTO] === "2026-11-18T15:00:00.000Z", "último movimiento = la última entrada de una persona (no la migración)");
-assert(JSON.stringify(a1.campos[CAMPO_RESPONSABLE]) === JSON.stringify(["recMaritza"]) && a1.responsable?.nombre === "Maritza Moreno", "responsable = quien hizo el último cambio");
+assert(JSON.stringify(a1.campos[CAMPO_RESPONSABLE]) === JSON.stringify(["recEnrique"]) && a1.responsable?.nombre === "Enrique Martinez", "responsable = quien la pasó a En Proceso (la entrada «a»)");
+
+// «Es quien la toma»: manda quien la pasó a En Proceso, aunque otra persona escribiera después
+const p1b = planAlertas({ personas, ordenes: [orden({ historial: [
+  e({ id: "a", fecha: "2026-11-10T15:00:00.000Z", texto: "En Proceso: se cambia la pasta térmica" }),
+  e({ id: "b", fecha: "2026-11-18T15:00:00.000Z", autorId: "recMaritza", autorNombre: "Maritza Moreno", texto: "Recordamos al cliente" }),
+] })] });
+assert(p1b.acciones[0].responsable?.nombre === "Enrique Martinez", "responsable = quien tomó la orden (la pasó a En Proceso), no quien mandó un recordatorio");
+const p1c = planAlertas({ personas, ordenes: [orden({ historial: [
+  e({ fecha: "2026-11-10T15:00:00.000Z", tipo: "Responsable", texto: "Enrique Martinez toma la orden" }),
+] })] });
+assert(p1c.acciones[0].responsable?.nombre === "Enrique Martinez", "«toma la orden» también cuenta");
 
 const p2 = planAlertas({ personas, ordenes: [orden({ historial: [e({ autorId: "recOtro", autorNombre: "Ex empleado" })] })] });
 assert(!p2.acciones[0].campos[CAMPO_RESPONSABLE] && p2.quedanSinResponsable.length === 1, "si quien escribió ya no está en Técnicos, queda sin responsable (se avisa)");

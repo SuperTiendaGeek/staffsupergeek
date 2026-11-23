@@ -6,8 +6,10 @@
 //     una persona (no cuentan «Contraseña vista», «Alerta pospuesta»,
 //     «Responsable» ni las notas que dejaron las migraciones). Sin ninguna:
 //     la fecha de ingreso.
-//   · «Responsable» (decisión del dueño 22-nov): quien hizo el último cambio
-//     en la Actividad, si es una persona activa en Técnicos (o administrador).
+//   · «Responsable» (decisión del dueño 22-nov: «es quien la toma»): la última
+//     persona que TOMÓ la orden (la pasó a «En Proceso» o «toma la orden»),
+//     igual que la regla automática de hoy; si nadie la tomó, quien hizo el
+//     último cambio. Solo personas activas en Técnicos (o administradores).
 //   · «Cliente avisado», solo en órdenes «Completado»: supuesto para aprobar
 //     en la vista previa — al cliente se le avisó cuando la orden pasó a
 //     Completado (la última entrada que empieza con «Completado»); si no hay,
@@ -64,6 +66,10 @@ export function esMovimientoHistorico(e: EntradaMig): boolean {
   return valida(e.fecha) && esDePersona(e) && cuentaComoMovimiento(e.tipo);
 }
 
+/** La pasó a «En Proceso» o dijo «toma la orden»: es quien la tomó. */
+export const laTomo = (e: Pick<EntradaMig, "texto" | "tipo">) =>
+  /^\s*en proceso/i.test(e.texto) || (e.tipo.trim() === "Responsable" && /toma la orden/i.test(e.texto));
+
 const masReciente = (xs: EntradaMig[]) => [...xs].sort((a, b) => Date.parse(b.fecha) - Date.parse(a.fecha))[0] ?? null;
 
 export function planAlertas(o: { ordenes: OrdenMig[]; personas: PersonaMig[] }): {
@@ -85,8 +91,9 @@ export function planAlertas(o: { ordenes: OrdenMig[]; personas: PersonaMig[] }):
     }
 
     if (!orden.responsableId) {
-      const quien = masReciente(orden.historial.filter((e) =>
-        valida(e.fecha) && e.autorId && personas.has(e.autorId) && e.tipo.trim() !== "Contraseña vista"));
+      const dePersona = orden.historial.filter((e) =>
+        valida(e.fecha) && e.autorId && personas.has(e.autorId) && e.tipo.trim() !== "Contraseña vista");
+      const quien = masReciente(dePersona.filter(laTomo)) ?? masReciente(dePersona);
       if (quien?.autorId) {
         const p = personas.get(quien.autorId)!;
         a.campos[CAMPO_RESPONSABLE] = [p.id];
