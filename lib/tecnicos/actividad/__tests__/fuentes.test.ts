@@ -16,14 +16,29 @@ assert(/<ActividadCard\s/.test(pantalla), "la orden muestra la Actividad");
 assert(!/title=\{item\.estadoGeneradoIA \? "Regenerar mensaje IA" : "Generar mensaje IA"\}/.test(pantalla), "ya no está el botón viejo «Generar mensaje IA»");
 
 const tarjeta = leer("components/tecnicos/ordenes/ActividadCard.tsx");
-assert(/accion: "redactar"|accion, apunte: texto/.test(tarjeta), "✨ pide el borrador a la IA");
-assert(/buildWhatsAppUrl\(datos\?\.telefono/.test(tarjeta), "«WhatsApp» usa el teléfono del cliente");
-// 23-nov (personal): sin selector «Nota interna / Al cliente»; el botón decide.
+// Actividad v2 (24-nov, tableros 13–15): la caja solo anota; el mensaje nace de una línea.
+assert(tarjeta.includes('placeholder="Anota lo que pasó…"') && !/Redactar mensaje para el cliente con IA/.test(tarjeta), "la caja solo anota (sin ✨ ni WhatsApp)");
 assert(!tarjeta.includes("Para quién es la nota") && !tarjeta.includes('"Nota interna"'), "ya no hay selector Nota interna / Al cliente");
-assert(tarjeta.includes('guardar(texto, "nota")') && tarjeta.includes('guardar(texto, "whatsapp")'), "en la caja: «Guardar» (solo el personal) y «WhatsApp» (mensaje al cliente)");
-assert(tarjeta.includes('guardar(borrador, "copiar")') && tarjeta.includes('guardar(borrador, "whatsapp")'), "el borrador de la IA: «Copiar» o «Enviar por WhatsApp»; los dos quedan como mensaje al cliente");
+assert(tarjeta.includes('void mensaje(e.id, "crear")') && tarjeta.includes("Crear mensaje"), "cada línea posible trae «✨ Crear mensaje»");
+assert(tarjeta.includes("<MensajeCliente") && tarjeta.includes("Se guarda solo"), "el mensaje queda pegado a su línea y se guarda solo");
+assert(/buildWhatsAppUrl\(telefono, t\)/.test(tarjeta) && tarjeta.includes('enviar("Copiado")') && tarjeta.includes('enviar("WhatsApp")'), "junto al mensaje: «Enviar por WhatsApp» (wa.me con el teléfono del cliente) y «Copiar»");
+assert(tarjeta.includes("Reenviar") && tarjeta.includes("Enviado por WhatsApp"), "el mensaje enviado dice quién y cuándo, y se puede reenviar");
+assert(tarjeta.includes('mensaje(e.id, "talCual")'), "«Enviar tal cual» (sin IA) en las acciones de la línea");
 assert(tarjeta.includes("navigator.clipboard.writeText(e.texto)"), "cada nota o mensaje de la lista se puede copiar");
-assert(tarjeta.includes("Enviado al cliente") && !tarjeta.includes(">Interna<"), "la lista ya no marca «Interna» en cada nota");
+assert(tarjeta.includes("sg-destello_700ms") && !tarjeta.includes("sg-destello_900ms"), "el destello de la línea nueva dura 700 ms (antes 900)");
+assert(tarjeta.includes('(e.tipo === "Nota" || e.tipo === "Aviso al cliente") && (e.texto.split'), "las notas largas también se pliegan con «ver todo»");
+assert(tarjeta.includes("desplazar(") && !tarjeta.includes('behavior: "smooth"'), "llevar a la vista respeta «reducir movimiento»");
+const desplazar = leer("components/tecnicos/desplazar.ts");
+assert(desplazar.includes("prefers-reduced-motion: reduce") && desplazar.includes('quieto ? "auto" : "smooth"'), "desplazar(): sin animación si la persona pidió reducir movimiento");
+
+const mensaje = leer("lib/tecnicos/actividad/mensaje.ts");
+assert(mensaje.includes('"Estado Generado IA"') && mensaje.includes('"Mensaje enviado"') && mensaje.includes('"Mensaje enviado por"'), "el mensaje se guarda en su línea (Estado Generado IA + Mensaje enviado/por)");
+assert(!mensaje.includes('"Solicitar Mensaje Cliente": true'), "no dispara la Automatización 2 vieja");
+assert(/ids\(r\.fields\["Órdenes de Reparación"\]\)\.includes\(ordenId\)/.test(mensaje), "solo se toca una línea de la misma orden");
+assert(/"Cliente avisado"/.test(mensaje) && /=== "Completado"/.test(mensaje) && mensaje.includes('"Último movimiento"'), "enviar el mensaje con la orden Completado marca «Cliente avisado» y cuenta como movimiento");
+assert(mensaje.includes("formatoWhatsApp("), "el mensaje de la IA sale en párrafos para WhatsApp");
+const rutaMensaje = leer("app/api/tecnicos/ordenes/[id]/actividad/[linea]/mensaje/route.ts");
+assert(rutaMensaje.includes("requireTecnicosSession"), "la ruta del mensaje pide sesión de Técnicos");
 
 const ruta = leer("app/api/tecnicos/ordenes/[id]/asistente/route.ts");
 assert(/accion === "redactar"/.test(ruta) && /pedidoRedactar\(/.test(ruta), "la ruta del asistente sabe redactar el mensaje");

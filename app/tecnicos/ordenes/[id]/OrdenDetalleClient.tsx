@@ -27,6 +27,7 @@ import { METODO_SALDO_A_FAVOR, maximoUsable } from "@/lib/saldo-favor/reglas";
 import { ImprimirEtiquetaMantenimientoModal } from "@/components/print/ImprimirEtiquetaMantenimientoModal";
 import { EntregarClientePanel } from "@/components/tecnicos/ordenes/EntregarClientePanel";
 import { RegresoEquipoDialog } from "@/components/tecnicos/ordenes/RegresoEquipoDialog";
+import { desplazar } from "@/components/tecnicos/desplazar";
 import { ActividadCard } from "@/components/tecnicos/ordenes/ActividadCard";
 import { EquipoFicha } from "@/components/tecnicos/ordenes/EquipoFicha";
 import { ReabrirOrdenDialog } from "@/components/tecnicos/ordenes/ReabrirOrdenDialog";
@@ -1306,7 +1307,7 @@ export function OrdenDetalleClient() {
                   if (accion === "escribir") setPedirMensaje((n) => n + 1);
                   else if (accion === "anotar") setPedirNota((n) => n + 1);
                   else if (accion === "completar") handleEstadoChange("Completado");
-                  else document.getElementById("orden-presupuesto")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  else desplazar(document.getElementById("orden-presupuesto"), "start");
                 }}
               />
             )}
@@ -1386,7 +1387,10 @@ export function OrdenDetalleClient() {
                   pedirMensaje={pedirMensaje}
                   pedirNota={pedirNota}
                   onGuardada={(enviado) => {
-                    // Un aviso por WhatsApp con la orden Completada deja «Cliente avisado»: el botón pasa a «Entregar».
+                    // Una nota o un mensaje enviado mueven la orden: la franja y la barra de alertas se releen.
+                    setActividadVersion((v) => v + 1);
+                    avisarCambioAlertas();
+                    // Un mensaje enviado con la orden Completada deja «Cliente avisado»: el botón pasa a «Entregar».
                     if (enviado) void fetchData({ showLoading: false, preserveError: true });
                   }}
                 />
@@ -1668,7 +1672,7 @@ export function OrdenDetalleClient() {
                 }}
                 onIrA={(donde) => {
                   setEntregaAbierta(false);
-                  document.getElementById(donde === "presupuesto" ? "orden-presupuesto" : "orden-cuenta")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  desplazar(document.getElementById(donde === "presupuesto" ? "orden-presupuesto" : "orden-cuenta"), "start");
                 }}
                 onRegistrarPago={() => {
                   setEntregaAbierta(false);
@@ -1869,7 +1873,7 @@ export function OrdenDetalleClient() {
               usuario={userNombre}
               onRegistrarPago={abrirRegistrarPago}
               onIrA={(seccion) => {
-                setTimeout(() => document.getElementById(seccion === "cuenta" ? "orden-cuenta" : "orden-presupuesto")?.scrollIntoView({ behavior: "smooth", block: "start" }), 250);
+                setTimeout(() => desplazar(document.getElementById(seccion === "cuenta" ? "orden-cuenta" : "orden-presupuesto"), "start"), 250);
               }}
               onActividad={() => setActividadVersion((v) => v + 1)}
             />
