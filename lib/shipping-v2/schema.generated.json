@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-25T20:17:34.616Z",
+  "generatedAt": "2026-11-24T23:17:30.418Z",
   "baseId": "appLkmz7I6vqJ2UXc",
   "tables": {
     "Shipping Proveedores": {
@@ -936,7 +936,8 @@
             "3200x1800 (QHD+)",
             "3840x2160 (4K UHD)",
             "Touch",
-            "Otro"
+            "Otro",
+            "2304x1440"
           ]
         },
         "CPU marca": {
@@ -3287,7 +3288,8 @@
             "3840x2160 (4K UHD)",
             "4096x2304 (4K Retina)",
             "Otro",
-            "Pantalla resolución sugerida"
+            "Pantalla resolución sugerida",
+            "2304x1440"
           ]
         },
         "Sistema operativo sugerido": {
