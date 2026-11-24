@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { fetchOrdenById, markOrdenBajaInterna } from "@/lib/tecnicos/airtable";
 import { getAbandonmentStatus } from "@/lib/tecnicos/orders/abandonmentPolicy";
+import { evaluarBaja, motivoReciclaje } from "@/lib/tecnicos/orden/baja";
 import { requireTecnicosSession } from "@/lib/tecnicos/api-auth";
 
 export const dynamic = "force-dynamic";
@@ -37,9 +38,16 @@ export async function PATCH(_: Request, { params }: Params) {
       );
     }
 
+    // R8: lo que queda en la Actividad dice desde cuándo se contó (ingreso o completada).
+    const baja = evaluarBaja({
+      estado: orden.estadoActual, fechaIngreso: orden.fechaIngreso, completadaEl: orden.completadaEl,
+      estadoCambiadoEl: orden.estadoCambiadoEl, clienteAvisado: orden.clienteAvisado,
+    }, new Date());
+
     const result = await markOrdenBajaInterna({
       ordenRecordId,
       daysWaiting: abandonmentStatus.daysWaiting,
+      motivo: baja ? motivoReciclaje(baja) : undefined,
       creadoPorNombre: session.user.nombre ?? null,
       creadoPorEmail: session.user.email ?? null,
       creadoPorUsuarioId: session.user.userId ?? null,

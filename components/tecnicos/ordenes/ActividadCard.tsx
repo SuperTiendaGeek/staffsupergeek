@@ -63,11 +63,12 @@ function MensajeCliente({ e, abierto, ocupado, telefonoOk, onAbrir, onAccion }: 
   ocupado: Accion | null;
   telefonoOk: boolean;
   onAbrir: (abrir: boolean) => void;
-  onAccion: (a: Accion, texto?: string, via?: "WhatsApp" | "Copiado") => void;
+  onAccion: (a: Accion, texto?: string, via?: "WhatsApp" | "Copiado") => Promise<boolean> | void;
 }) {
   const m = e.mensaje!;
   const [texto, setTexto] = useState(m.texto);
-  const [guardado, setGuardado] = useState<"" | "guardando" | "listo">("");
+  // «fallo»: no se guardó; se ve y se puede reintentar (antes decía «Guardado» igual).
+  const [guardado, setGuardado] = useState<"" | "guardando" | "listo" | "fallo">("");
   const ultimo = useRef(m.texto);
   const accion = useRef(onAccion);
   accion.current = onAccion;
@@ -76,12 +77,25 @@ function MensajeCliente({ e, abierto, ocupado, telefonoOk, onAbrir, onAccion }: 
   useEffect(() => { if (m.texto !== ultimo.current) { setTexto(m.texto); ultimo.current = m.texto; } }, [m.texto]);
 
   // Se guarda solo (sin botón «Guardar»): un momento después de dejar de escribir.
+  const guardar = useCallback((t: string) => {
+    const previo = ultimo.current;
+    ultimo.current = t;
+    setGuardado("guardando");
+    void Promise.resolve(accion.current("guardar", t)).then((ok) => {
+      if (ok === false) {
+        // Queda como no guardado: el próximo cambio (o «reintentar») lo vuelve a intentar.
+        if (ultimo.current === t) ultimo.current = previo;
+        setGuardado("fallo");
+      } else {
+        setGuardado((g) => (g === "guardando" ? "listo" : g));
+      }
+    });
+  }, []);
   useEffect(() => {
     if (!abierto || m.enviado || texto === ultimo.current || texto.trim().length < 2) return;
-    const t = setTimeout(() => { ultimo.current = texto; setGuardado("guardando"); accion.current("guardar", texto); }, 900);
+    const t = setTimeout(() => guardar(texto), 900);
     return () => clearTimeout(t);
-  }, [texto, abierto, m.enviado]);
-  useEffect(() => { if (guardado === "guardando" && ocupado !== "guardar") setGuardado("listo"); }, [ocupado, guardado]);
+  }, [texto, abierto, m.enviado, guardar]);
   // Guardar no bloquea: se puede enviar mientras se guarda.
   const bloqueado = !!ocupado && ocupado !== "guardar";
 
@@ -116,7 +130,9 @@ function MensajeCliente({ e, abierto, ocupado, telefonoOk, onAbrir, onAccion }: 
       <div className="flex items-center gap-1.5 px-2.5 pt-2 text-[11px] font-bold text-[#D7FF4F]">
         <Destello size={12} />Mensaje para el cliente · sin enviar
         <span className="flex-1" />
-        <span className="font-semibold text-[#8A8A84]">{guardado === "guardando" ? "Guardando…" : guardado === "listo" ? "Guardado" : "Se guarda solo"}</span>
+        {guardado === "fallo"
+          ? <button type="button" onClick={() => guardar(texto)} className="font-bold text-[#FF9C94] hover:underline animate-[sg-sacudir_240ms_ease-out]">No se guardó · reintentar</button>
+          : <span className="font-semibold text-[#8A8A84]">{guardado === "guardando" ? "Guardando…" : guardado === "listo" ? "Guardado" : "Se guarda solo"}</span>}
         <button type="button" onClick={() => onAbrir(false)} aria-label="Plegar el mensaje" title="Plegar" className="ml-1 grid h-6 w-6 place-items-center rounded text-[#B5B5AE] hover:bg-[#2C2D29] hover:text-white">
           <svg width="10" height="10" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 10l5-5 5 5" fill="none" stroke="currentColor" strokeWidth="1.8" /></svg>
         </button>
@@ -219,16 +235,16 @@ export function ActividadCard({ ordenId, refrescar, pedirMensaje = 0, pedirNota 
 
   /** Todo lo del mensaje de una línea pasa por aquí (crear, variar, guardar, enviar, descartar). */
   const telefono = datos?.telefono;
-  const mensaje = useCallback(async (id: string, accion: Accion, contenido?: string, via?: "WhatsApp" | "Copiado") => {
+  const mensaje = useCallback(async (id: string, accion: Accion, contenido?: string, via?: "WhatsApp" | "Copiado"): Promise<boolean> => {
     if (accion === "enviar") {
       const t = (contenido ?? "").trim();
       // WhatsApp se abre ANTES de esperar al servidor: el navegador no bloquea la ventana.
       if (via === "WhatsApp") {
         const wa = buildWhatsAppUrl(telefono, t);
-        if (!wa) { setError("El cliente no tiene un teléfono válido para WhatsApp."); return; }
+        if (!wa) { setError("El cliente no tiene un teléfono válido para WhatsApp."); return false; }
         window.open(wa, "_blank", "noopener,noreferrer");
       } else {
-        try { await navigator.clipboard.writeText(t); } catch { setError("No se pudo copiar. Selecciona el texto y cópialo."); return; }
+        try { await navigator.clipboard.writeText(t); } catch { setError("No se pudo copiar. Selecciona el texto y cópialo."); return false; }
       }
     }
     setTrabajo({ id, accion });
@@ -245,8 +261,10 @@ export function ActividadCard({ ordenId, refrescar, pedirMensaje = 0, pedirNota 
       if (accion === "crear" || accion === "talCual") setAbiertos((a) => (a.includes(id) ? a : [...a, id]));
       if (accion === "enviar" || accion === "descartar") setAbiertos((a) => a.filter((x) => x !== id));
       if (accion === "enviar") onGuardada?.(true);
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo con el mensaje.");
+      return false;
     } finally {
       setTrabajo(null);
     }
@@ -396,7 +414,7 @@ export function ActividadCard({ ordenId, refrescar, pedirMensaje = 0, pedirNota 
                 )}
                 {e.mensaje && (
                   <MensajeCliente e={e} abierto={abiertos.includes(e.id)} ocupado={ocupado} telefonoOk={telefonoOk}
-                    onAbrir={(si) => abrir(e.id, si)} onAccion={(a, t, v) => void mensaje(e.id, a, t, v)} />
+                    onAbrir={(si) => abrir(e.id, si)} onAccion={(a, t, v) => mensaje(e.id, a, t, v)} />
                 )}
                 {borrando === e.id && (
                   <span className="mt-1 flex items-center gap-2 text-xs text-[#B5B5AE] animate-[sg-entrada_120ms_ease-out]">

@@ -1,3 +1,11 @@
+// Política de baja — forma que usan la orden, su mensaje de WhatsApp y la ruta
+// «baja interna». Desde el rediseño R8 (24-nov-2026) la regla vive en
+// lib/tecnicos/orden/baja.ts: «Esperando Respuesta» cuenta desde el ingreso y
+// «Completado» (avisado) desde que se completó. Antes contaba desde la última
+// nota de espera y solo para «Esperando Respuesta».
+
+import { DIAS_BAJA, ETIQUETA_BAJA, diasParaBaja, evaluarBaja, mensajeBaja, referenciaBaja } from "@/lib/tecnicos/orden/baja";
+
 export type AbandonmentLevel = "none" | "warning" | "critical";
 
 export type AbandonmentStatus = {
@@ -6,140 +14,48 @@ export type AbandonmentStatus = {
   daysWaiting: number | null;
   daysRemaining: number | null;
   referenceDate: string | null;
+  /** Desde qué fecha cuenta (R8). */
+  desde: "ingreso" | "completada" | null;
   label: string;
   message: string;
-};
-
-type HistoryLike = {
-  estadoNuevo?: string | null;
-  nota?: string | null;
-  fecha?: string | null;
 };
 
 export type AbandonmentOrderInput = {
   estadoActual?: string | null;
   fechaIngreso?: string | null;
+  completadaEl?: string | null;
+  estadoCambiadoEl?: string | null;
+  clienteAvisado?: string | null;
+  // Ya no se usan (regla anterior); se aceptan para no romper a quien los pase.
   ultimaModificacion?: string | null;
-  historial?: HistoryLike[] | null;
+  historial?: unknown;
 };
 
-const WAITING_STATE = "esperando respuesta";
-const FINAL_STATES = new Set(["finalizado entregado", "enviado a reciclaje"]);
-const WARNING_DAYS = 60;
-const CRITICAL_DAYS = 90;
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-const normalize = (value?: string | null) =>
-  (value ?? "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-
-const parseDate = (value?: string | null): Date | null => {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-};
-
-const isWaitingHistoryEntry = (item: HistoryLike) => {
-  const text = normalize(`${item.estadoNuevo ?? ""} ${item.nota ?? ""}`);
-  return (
-    text.includes(WAITING_STATE) ||
-    text.includes("espera") ||
-    text.includes("respuesta") ||
-    text.includes("confirmacion") ||
-    text.includes("confirmar") ||
-    text.includes("presupuesto")
-  );
-};
-
-const getReferenceDate = (order: AbandonmentOrderInput): string | null => {
-  const historyDates = (order.historial ?? [])
-    .filter(isWaitingHistoryEntry)
-    .map((item) => parseDate(item.fecha))
-    .filter((date): date is Date => Boolean(date))
-    .sort((a, b) => b.getTime() - a.getTime());
-
-  if (historyDates[0]) return historyDates[0].toISOString();
-
-  const fallback =
-    parseDate(order.ultimaModificacion)?.toISOString() ??
-    parseDate(order.fechaIngreso)?.toISOString() ??
-    null;
-
-  return fallback;
-};
-
-export const getAbandonmentStatus = (
-  order: AbandonmentOrderInput,
-  now = new Date()
-): AbandonmentStatus => {
-  const estado = normalize(order.estadoActual);
-
-  if (FINAL_STATES.has(estado) || estado !== WAITING_STATE) {
+export const getAbandonmentStatus = (order: AbandonmentOrderInput, now = new Date()): AbandonmentStatus => {
+  const datos = {
+    estado: order.estadoActual,
+    fechaIngreso: order.fechaIngreso,
+    completadaEl: order.completadaEl,
+    estadoCambiadoEl: order.estadoCambiadoEl,
+    clienteAvisado: order.clienteAvisado,
+  };
+  const ref = referenciaBaja(datos);
+  const baja = evaluarBaja(datos, now);
+  const dias = diasParaBaja(datos, now);
+  if (!baja) {
     return {
-      applies: false,
-      level: "none",
-      daysWaiting: null,
-      daysRemaining: null,
-      referenceDate: null,
-      label: "",
-      message: "",
+      applies: !!ref, level: "none", daysWaiting: dias, daysRemaining: dias === null ? null : Math.max(0, DIAS_BAJA - dias),
+      referenceDate: ref?.fecha ?? null, desde: ref?.desde ?? null, label: "", message: "",
     };
   }
-
-  const referenceDate = getReferenceDate(order);
-  const parsedReference = parseDate(referenceDate);
-  if (!parsedReference) {
-    return {
-      applies: true,
-      level: "none",
-      daysWaiting: null,
-      daysRemaining: null,
-      referenceDate: null,
-      label: "",
-      message: "",
-    };
-  }
-
-  const daysWaiting = Math.max(
-    0,
-    Math.floor((now.getTime() - parsedReference.getTime()) / DAY_MS)
-  );
-  const daysRemaining = Math.max(0, CRITICAL_DAYS - daysWaiting);
-
-  if (daysWaiting >= CRITICAL_DAYS) {
-    return {
-      applies: true,
-      level: "critical",
-      daysWaiting,
-      daysRemaining: 0,
-      referenceDate,
-      label: "Cumple política de baja",
-      message: `Esta orden lleva ${daysWaiting} días sin respuesta del cliente. Revisa el caso y, si corresponde, marca la orden como baja interna.`,
-    };
-  }
-
-  if (daysWaiting >= WARNING_DAYS) {
-    return {
-      applies: true,
-      level: "warning",
-      daysWaiting,
-      daysRemaining,
-      referenceDate,
-      label: "Próxima a baja",
-      message: `Esta orden lleva ${daysWaiting} días esperando respuesta. Faltan ${daysRemaining} días para cumplir la política interna de baja.`,
-    };
-  }
-
   return {
     applies: true,
-    level: "none",
-    daysWaiting,
-    daysRemaining,
-    referenceDate,
-    label: "",
-    message: "",
+    level: baja.nivel === "cumple" ? "critical" : "warning",
+    daysWaiting: baja.dias,
+    daysRemaining: baja.faltan,
+    referenceDate: baja.fecha,
+    desde: baja.desde,
+    label: ETIQUETA_BAJA[baja.nivel],
+    message: mensajeBaja(baja),
   };
 };

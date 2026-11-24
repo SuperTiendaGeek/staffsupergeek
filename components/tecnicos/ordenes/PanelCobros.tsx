@@ -101,7 +101,7 @@ const ESTADO_COBRO_LABEL: Record<OrdenCobro["estadoCobro"], { texto: string; cla
   saldo_a_favor: { texto: "Saldo a favor",   clase: "text-[var(--sg-info)]" },
 };
 
-export function PanelCobros({ onFiltroActivo }: { onFiltroActivo?: (activo: boolean) => void }) {
+export function PanelCobros({ onFiltroActivo, inmediato = false }: { onFiltroActivo?: (activo: boolean) => void; inmediato?: boolean }) {
   const [rango, setRango] = useState<Rango>("facturacion");
   const [categoria, setCategoria] = useState<CategoriaCobro | null>(null);
   const [datos, setDatos] = useState<{ resumen: ResumenCobros; ordenes: OrdenCobro[] } | null>(null);
@@ -135,7 +135,8 @@ export function PanelCobros({ onFiltroActivo }: { onFiltroActivo?: (activo: bool
         })
         .catch((e) => { if (!(e instanceof DOMException && e.name === "AbortError")) setError(e instanceof Error ? e.message : "No se pudo cargar el control de cobros."); })
         .finally(() => { if (!ctrl.signal.aborted) setCargando(false); });
-    }, recarga === 0 && !datos ? 1200 : 0);
+    // R8: en la pestaña «Cobros» la abre la persona a propósito: carga de una vez.
+    }, recarga === 0 && !datos && !inmediato ? 1200 : 0);
     return () => { ctrl.abort(); clearTimeout(arranque); if (reintento) clearTimeout(reintento); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rango, recarga]);

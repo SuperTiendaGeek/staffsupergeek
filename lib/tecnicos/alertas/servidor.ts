@@ -12,9 +12,13 @@ import { AIRTABLE_TABLES } from "@/lib/tecnicos/config/airtable";
 import { createHistorialEntrada } from "@/lib/tecnicos/airtable";
 import { lineasPorIds, T_PRESUPUESTO } from "@/lib/tecnicos/presupuesto/airtable";
 import {
-  evaluarOrden, mezclarConfig, ordenarFilas, resumenAlertas, revisarConfig, revisarPosponer, textoFecha,
+  evaluarOrden, mezclarConfig, minutosHabiles, notaSinAlerta, textoTarjeta, ordenarFilas, resumenAlertas, revisarConfig, revisarPosponer, textoFecha,
+  textoHace, ultimoMovimiento,
   type Alerta, type ConfigAlertas, type FilaAlerta, type LineaAlerta, type OrdenAlerta,
 } from "./reglas";
+import { ETIQUETA_BAJA, evaluarBaja } from "@/lib/tecnicos/orden/baja";
+import type { FilaTablero } from "@/lib/tecnicos/orden/tablero";
+import { compartirLectura } from "@/lib/compartir-lectura";
 
 export const CLAVE_CONFIG = "alertas-ordenes";
 export const CAMPOS_ALERTA = {
@@ -23,6 +27,8 @@ export const CAMPOS_ALERTA = {
   pospuesta: "Alerta pospuesta hasta",
   avisado: "Cliente avisado",
   enviado: "Presupuesto enviado",
+  completada: "Completada el",
+  estadoCambiado: "Estado cambiado el",
 } as const;
 
 export class ErrorAlerta extends Error {
@@ -63,6 +69,7 @@ export async function guardarConfigAlertas(body: unknown, usuario: Usuario): Pro
 const CAMPOS_ORDEN = [
   "ID", "Estado Actual", "Fecha de Ingreso", "ClienteTXT", "Equipo", T_PRESUPUESTO,
   CAMPOS_ALERTA.responsable, CAMPOS_ALERTA.movimiento, CAMPOS_ALERTA.pospuesta, CAMPOS_ALERTA.avisado, CAMPOS_ALERTA.enviado,
+  CAMPOS_ALERTA.completada, CAMPOS_ALERTA.estadoCambiado,
 ];
 const FORMULA_ABIERTAS = "AND({Estado Actual} != 'Finalizado Entregado', {Estado Actual} != 'Enviado a Reciclaje')";
 
@@ -88,6 +95,8 @@ function aOrdenAlerta(r: Registro, lineas: Map<string, LineaAlerta>): OrdenAlert
     pospuestaHasta: fecha(CAMPOS_ALERTA.pospuesta),
     clienteAvisado: fecha(CAMPOS_ALERTA.avisado),
     presupuestoEnviado: fecha(CAMPOS_ALERTA.enviado),
+    completadaEl: fecha(CAMPOS_ALERTA.completada),
+    estadoCambiadoEl: fecha(CAMPOS_ALERTA.estadoCambiado),
     lineas: ids(f[T_PRESUPUESTO]).map((id) => lineas.get(id)).filter((l): l is LineaAlerta => !!l),
   };
 }
@@ -110,11 +119,25 @@ async function lineasDe(registros: Registro[]): Promise<Map<string, LineaAlerta>
 export type FilaLista = FilaAlerta & { cliente: string; equipo: string; estado: string };
 
 // Memoria corta: la barra de arriba pregunta cada pocos minutos desde cada pantalla.
-let memoria: { en: number; filas: FilaLista[] } | null = null;
+let memoria: { en: number; filas: FilaLista[]; tablero: FilaTablero[] } | null = null;
 export function olvidarAlertas() { memoria = null; }
 
 export async function leerAlertas(): Promise<FilaLista[]> {
-  if (memoria && Date.now() - memoria.en < 30_000) return memoria.filas;
+  return (await leerAbiertas()).filas;
+}
+
+/** Todas las órdenes abiertas para el tablero y la Lista (R8): la misma lectura que las alertas. */
+export async function leerTablero(): Promise<FilaTablero[]> {
+  return (await leerAbiertas()).tablero;
+}
+
+async function leerAbiertas(): Promise<{ filas: FilaLista[]; tablero: FilaTablero[] }> {
+  if (memoria && Date.now() - memoria.en < 30_000) return memoria;
+  // Si otra pantalla ya está leyendo lo mismo en esta instancia, se espera esa lectura (incidente 24-nov).
+  return compartirLectura("alertas-ordenes-abiertas", leerAbiertasDeAirtable);
+}
+
+async function leerAbiertasDeAirtable(): Promise<{ filas: FilaLista[]; tablero: FilaTablero[] }> {
   const [registros, config] = await Promise.all([
     listarTodo(AIRTABLE_TABLES.ordenes, CAMPOS_ORDEN, FORMULA_ABIERTAS) as Promise<Registro[]>,
     leerConfigAlertas(),
@@ -122,22 +145,32 @@ export async function leerAlertas(): Promise<FilaLista[]> {
   const lineas = await lineasDe(registros);
   const ahora = new Date();
   const filas: FilaLista[] = [];
+  const tablero: FilaTablero[] = [];
   for (const r of registros) {
     const o = aOrdenAlerta(r, lineas);
     const alerta = evaluarOrden(o, config, ahora);
-    if (!alerta) continue;
-    filas.push({
-      ordenId: o.id, codigo: o.codigo, responsableId: o.responsableId, alerta,
-      cliente: clienteDe(r.fields), equipo: texto(r.fields["Equipo"]), estado: o.estado,
+    const baja = evaluarBaja(o, ahora);
+    const cliente = clienteDe(r.fields);
+    const equipo = texto(r.fields["Equipo"]);
+    if (alerta) filas.push({ ordenId: o.id, codigo: o.codigo, responsableId: o.responsableId, alerta, cliente, equipo, estado: o.estado });
+    const minutos = alerta ? alerta.minutos : minutosHabiles(ultimoMovimiento(o), ahora, config.horario);
+    tablero.push({
+      ordenId: o.id, codigo: o.codigo, cliente, equipo, estado: o.estado, responsableId: o.responsableId, fechaIngreso: o.fechaIngreso,
+      nivel: alerta?.nivel ?? "alDia",
+      texto: alerta ? textoTarjeta(alerta) : baja ? ETIQUETA_BAJA[baja.nivel] : notaSinAlerta(o),
+      hace: alerta ? alerta.hace : baja ? `${baja.dias} d` : textoHace(minutos, config.horario),
+      minutos,
+      pospuestaHasta: alerta?.pospuestaHasta ?? null,
+      baja,
     });
   }
-  memoria = { en: Date.now(), filas: ordenarFilas(filas) };
-  return memoria.filas;
+  memoria = { en: Date.now(), filas: ordenarFilas(filas), tablero };
+  return memoria;
 }
 
 export async function resumenParaBarra(yo: string | null) {
-  const filas = await leerAlertas();
-  return { resumen: resumenAlertas(filas, yo), filas };
+  const { filas, tablero } = await leerAbiertas();
+  return { resumen: resumenAlertas(filas, yo), filas, tablero };
 }
 
 /** La alerta de una sola orden (franja dentro de la orden). */

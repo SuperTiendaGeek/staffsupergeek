@@ -20,12 +20,19 @@ export async function GET(request: Request) {
     const riskParam = searchParams.get("risk");
     const risk = riskParam === "warning" || riskParam === "critical" ? riskParam : null;
 
+    // R8: la Lista pide sin conteos (resumen=0) y ordena las entregadas por fecha de entrega.
+    const resumen = searchParams.get("resumen") !== "0";
+    const ordenParam = searchParams.get("orden");
+    const orden = ordenParam === "entrega" || ordenParam === "cambio" ? ordenParam : "ingreso";
+
     const result = await fetchOrdenesPage({
       pageSize,
       offset,
       q,
       estado,
       risk,
+      resumen,
+      orden,
     });
 
     return NextResponse.json({

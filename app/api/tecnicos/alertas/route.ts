@@ -5,7 +5,8 @@ import { resumenParaBarra } from "@/lib/tecnicos/alertas/servidor";
 import { opciones } from "@/lib/tecnicos/responsable/servidor";
 
 // Alertas de atención (rediseño R10): barra superior, panel del día y filtros de la lista.
-//   GET → { resumen {atencion, porVencer, mias, sinResponsable}, filas, responsables, yo, esAdmin }
+//   GET → { resumen {atencion, porVencer, mias, sinResponsable}, filas, tablero, responsables, yo, esAdmin }
+//   «tablero» (R8): todas las órdenes abiertas, para el tablero por etapas y la Lista (misma lectura).
 
 export const dynamic = "force-dynamic";
 
@@ -14,10 +15,10 @@ export async function GET() {
   if (response) return response;
   const yo = session.user.userId ?? null;
   try {
-    const [{ resumen, filas }, personas] = await Promise.all([resumenParaBarra(yo), opciones().catch(() => [])]);
+    const [{ resumen, filas, tablero }, personas] = await Promise.all([resumenParaBarra(yo), opciones().catch(() => [])]);
     const responsables = Object.fromEntries(personas.map((p) => [p.id, { nombre: p.nombre, iniciales: p.iniciales }]));
     return NextResponse.json(
-      { success: true, data: { resumen, filas, responsables, yo, esAdmin: isAdministratorRole(session.user.rol) } },
+      { success: true, data: { resumen, filas, tablero, responsables, yo, esAdmin: isAdministratorRole(session.user.rol) } },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (e) {
