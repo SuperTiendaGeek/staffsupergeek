@@ -16,7 +16,7 @@ export class ErrorActividad extends Error {
 }
 
 const CAMPOS_ORDEN = ["Historial de Estados", "Estado Actual", "Telefono", "ClienteTXT"];
-const CAMPOS_HISTORIAL = ["Estado Nuevo", "Fecha", "Creado por Nombre", "Técnico", "Visibilidad", "Tipo de actividad", "Estado Generado IA"];
+const CAMPOS_HISTORIAL = ["Estado Nuevo", "Fecha", "Creado por Nombre", "Técnico", "Visibilidad", "Tipo de actividad", "Estado Generado IA", "Mensaje enviado", "Mensaje enviado por"];
 
 const primero = (v: unknown): string => (Array.isArray(v) ? texto(v[0]) : texto(v));
 
@@ -45,6 +45,8 @@ export async function leerActividad(ordenId: string): Promise<{
       tipo: r.fields["Tipo de actividad"],
       visibilidad: r.fields["Visibilidad"],
       mensajeIA: texto(r.fields["Estado Generado IA"]),
+      mensajeEnviado: texto(r.fields["Mensaje enviado"]),
+      mensajeEnviadoPor: texto(r.fields["Mensaje enviado por"]),
     })),
     ...(cuenta?.abonos ?? []).map((a) => dePago(a)),
     ...respuestas.map((r) => deRespuesta(r)),
@@ -62,10 +64,12 @@ export async function leerActividad(ordenId: string): Promise<{
 export async function novedadesDeLaOrden(ordenId: string): Promise<Array<{ fecha: string; texto: string }>> {
   const orden = (await porIds(AIRTABLE_TABLES.ordenes, [ordenId], ["Historial de Estados"])).get(ordenId);
   if (!orden) return [];
-  const historial = await porIds(AIRTABLE_TABLES.historial, ids(orden.fields["Historial de Estados"]), ["Estado Nuevo", "Fecha", "Visibilidad", "Tipo de actividad"]);
+  const historial = await porIds(AIRTABLE_TABLES.historial, ids(orden.fields["Historial de Estados"]),
+    ["Estado Nuevo", "Fecha", "Visibilidad", "Tipo de actividad", "Estado Generado IA", "Mensaje enviado"]);
   return novedadesParaCliente([...historial.values()].map((r) => deHistorial({
     id: r.id, texto: texto(r.fields["Estado Nuevo"]), fecha: texto(r.fields["Fecha"]) || r.createdTime || "", autor: "",
     tipo: r.fields["Tipo de actividad"], visibilidad: r.fields["Visibilidad"],
+    mensajeIA: texto(r.fields["Estado Generado IA"]), mensajeEnviado: texto(r.fields["Mensaje enviado"]),
   })));
 }
 

@@ -51,7 +51,7 @@ assert(card.includes("Renovar y copiar") && card.includes('avisarEnvio("whatsapp
 
 // ─── Actividad y rutas ───────────────────────────────────────────────────────
 const actividad = leer("components/tecnicos/ordenes/ActividadCard.tsx");
-assert(/useEffect\(\(\) => \{\s*if \(!pedirMensaje\) return;[\s\S]{0,300}pedirIA\("redactar"\)/.test(actividad), "«Avisar al cliente» abre el borrador ✨ Al cliente");
+assert(/if \(!pedirMensaje \|\| !datos[\s\S]{0,400}lineaParaAvisar\(datos\.entradas, datos\.estado\)[\s\S]{0,600}mensaje\(id, "crear"\)/.test(actividad), "«Avisar al cliente» crea el mensaje en la línea que toca (Completado → «Estado: Completado»)");
 const ruta = leer("app/api/tecnicos/ordenes/[id]/responsable/route.ts");
 assert((ruta.match(/requireTecnicosSession\(\)/g) ?? []).length === 2, "la ruta del responsable pide sesión en GET y POST");
 const servidor = leer("lib/tecnicos/responsable/servidor.ts");

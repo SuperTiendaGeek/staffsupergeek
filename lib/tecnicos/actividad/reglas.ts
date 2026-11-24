@@ -16,6 +16,12 @@
 //   · ✨ redacta el mensaje para el cliente con la IA (borrador que la persona
 //     revisa antes de guardar).
 //
+// Actividad v2 (24-nov, tableros 13–15 aprobados): la caja solo anota. El
+// mensaje para el cliente nace DE UNA LÍNEA («✨ Crear mensaje»), queda
+// pegado debajo de ella (campo «Estado Generado IA», el mismo que usaba la IA
+// de Airtable), se guarda solo y desde ahí se envía por WhatsApp o se copia;
+// «Mensaje enviado» y «Mensaje enviado por» dicen quién lo mandó y cuándo.
+//
 // Sin red ni Airtable: lo usan la ruta de la actividad, la tarjeta y el enlace.
 
 export const TIPOS_ACTIVIDAD = [
@@ -60,11 +66,62 @@ export type EntradaActividad = {
   fecha: string;
   texto: string;
   autor: string;
-  /** Mensaje para el cliente que dejó la automatización vieja («Generar mensaje IA»). */
-  mensajeAnterior?: string;
+  /** Mensaje para el cliente pegado a esta línea («Estado Generado IA»): nuevo (✨) o de la IA de Airtable. */
+  mensaje?: MensajeLinea;
+  /** ¿Se le puede crear un mensaje para el cliente? (notas, estados y trabajos) */
+  puedeMensaje?: boolean;
   /** Pago anulado: se muestra tachado. */
   anulado?: boolean;
 };
+
+export type MensajeLinea = {
+  texto: string;
+  /** Cuándo se envió o copió (null = todavía no). */
+  enviado: string | null;
+  /** «Alexis Bolaños · WhatsApp» / «Maritza Moreno · Copiado». */
+  enviadoPor: string | null;
+};
+
+export const VIAS_MENSAJE = ["WhatsApp", "Copiado"] as const;
+export type ViaMensaje = (typeof VIAS_MENSAJE)[number];
+
+/** Líneas que pueden convertirse en mensaje: lo que escribe una persona y lo que le pasa a la orden. */
+const TIPOS_CON_MENSAJE: readonly TipoActividad[] = ["Nota", "Cambio de estado", "Trabajo"];
+
+export const textoEnviadoPor = (nombre: string | null | undefined, via: ViaMensaje): string =>
+  `${(nombre ?? "").trim() || "Alguien"} · ${via}`;
+
+/** «Alexis Bolaños · WhatsApp» → { nombre: "Alexis", via: "WhatsApp" } (primer nombre, para la línea). */
+export function leerEnviadoPor(s: string | null | undefined): { nombre: string; via: ViaMensaje } | null {
+  const t = (s ?? "").trim();
+  if (!t) return null;
+  const corte = t.lastIndexOf(" · ");
+  const via = corte > 0 ? t.slice(corte + 3) : "";
+  const nombre = (corte > 0 ? t.slice(0, corte) : t).split(/\s+/)[0] ?? "";
+  return { nombre, via: via === "Copiado" ? "Copiado" : "WhatsApp" };
+}
+
+export function revisarMensaje(texto: unknown): { ok: true; texto: string } | { ok: false; error: string } {
+  const t = typeof texto === "string" ? texto.replace(/\r\n?/g, "\n").trim() : "";
+  if (t.length < NOTA_MIN) return { ok: false, error: "El mensaje está vacío." };
+  if (t.length > NOTA_MAX) return { ok: false, error: `Muy largo (máximo ${NOTA_MAX} letras).` };
+  return { ok: true, texto: t };
+}
+
+/**
+ * «Avisar al cliente» (cabecera) y «Escribir al cliente» (alerta): ¿en qué
+ * línea nace el mensaje? Completado → la línea «Estado: Completado» más
+ * reciente; si no, la línea más reciente que pueda tener mensaje y aún no lo
+ * tenga enviado.
+ */
+export function lineaParaAvisar(entradas: readonly EntradaActividad[], estado: string): string | null {
+  const orden = ordenar(entradas).filter((e) => e.puedeMensaje);
+  if (estado === "Completado") {
+    const c = orden.find((e) => e.tipo === "Cambio de estado" && e.texto === "Estado: Completado");
+    if (c) return c.id;
+  }
+  return (orden.find((e) => !e.mensaje?.enviado) ?? orden[0])?.id ?? null;
+}
 
 /**
  * Una fila del historial. Las viejas no traen tipo ni visibilidad: si el
@@ -74,6 +131,7 @@ export type EntradaActividad = {
 export function deHistorial(h: {
   id: string; texto: string; fecha: string; autor: string;
   tipo?: unknown; visibilidad?: unknown; mensajeIA?: string | null;
+  mensajeEnviado?: string | null; mensajeEnviadoPor?: string | null;
 }): EntradaActividad {
   const texto = (h.texto ?? "").trim();
   const tipo = normalizarTipo(h.tipo) || (ESTADOS_ORDEN.includes(texto) ? "Cambio de estado" : "Nota");
@@ -82,7 +140,8 @@ export function deHistorial(h: {
   return {
     id: h.id, origen: "historial", tipo, visibilidad, fecha: h.fecha, autor: h.autor,
     texto: tipo === "Cambio de estado" && ESTADOS_ORDEN.includes(texto) ? `Estado: ${texto}` : texto,
-    ...(mensaje ? { mensajeAnterior: mensaje } : {}),
+    ...(mensaje ? { mensaje: { texto: mensaje, enviado: (h.mensajeEnviado ?? "").trim() || null, enviadoPor: (h.mensajeEnviadoPor ?? "").trim() || null } } : {}),
+    ...(TIPOS_CON_MENSAJE.includes(tipo) ? { puedeMensaje: true } : {}),
   };
 }
 
@@ -123,7 +182,7 @@ export function ordenar(entradas: readonly EntradaActividad[]): EntradaActividad
 export function filtrar(entradas: readonly EntradaActividad[], filtro: FiltroActividad): EntradaActividad[] {
   if (filtro === "Notas") return entradas.filter((e) => e.tipo === "Nota");
   if (filtro === "Pagos") return entradas.filter((e) => e.tipo === "Pago");
-  if (filtro === "Al cliente") return entradas.filter((e) => e.visibilidad === "Al cliente" || e.tipo === "Aviso al cliente");
+  if (filtro === "Al cliente") return entradas.filter((e) => e.visibilidad === "Al cliente" || e.tipo === "Aviso al cliente" || !!e.mensaje);
   return [...entradas];
 }
 
@@ -139,10 +198,17 @@ export function revisarNota(o: { texto: unknown; visibilidad: unknown }): { ok: 
   return { ok: true, texto, visibilidad };
 }
 
-/** Lo que el cliente ve en «Novedades» de su enlace: solo lo escrito para él. */
+/**
+ * Lo que el cliente ve en «Novedades» de su enlace: solo lo que se le envió
+ * (los mensajes de una línea ya enviados, y los avisos y notas «Al cliente»
+ * de antes). Nunca la línea interna de la que salió el mensaje.
+ */
 export function novedadesParaCliente(entradas: readonly EntradaActividad[], max = 10): Array<{ fecha: string; texto: string }> {
-  return ordenar(entradas)
-    .filter((e) => e.origen === "historial" && e.visibilidad === "Al cliente" && (e.tipo === "Nota" || e.tipo === "Aviso al cliente"))
-    .slice(0, max)
-    .map((e) => ({ fecha: e.fecha, texto: e.texto }));
+  const items: Array<{ fecha: string; texto: string }> = [];
+  for (const e of entradas) {
+    if (e.origen !== "historial") continue;
+    if (e.mensaje?.enviado) items.push({ fecha: e.mensaje.enviado, texto: e.mensaje.texto });
+    else if (e.visibilidad === "Al cliente" && (e.tipo === "Nota" || e.tipo === "Aviso al cliente")) items.push({ fecha: e.fecha, texto: e.texto });
+  }
+  return items.sort((a, b) => (b.fecha || "").localeCompare(a.fecha || "")).slice(0, max);
 }
