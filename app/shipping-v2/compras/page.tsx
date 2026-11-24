@@ -7,6 +7,7 @@ import { getSessionFromCookie } from "@/lib/session";
 import { requirePantallaVisible } from "@/lib/permissions/pantallas";
 import { puedeComprar } from "@/lib/compras/reglas";
 import { filasBandeja, type FilaBandeja } from "@/lib/compras/servidor";
+import { compartirLectura } from "@/lib/compartir-lectura";
 import { BandejaComprasClient } from "./BandejaComprasClient";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,8 @@ export default async function ComprasPage() {
   let filas: FilaBandeja[] = [];
   let error = "";
   try {
-    filas = await filasBandeja();
+    // Varios clics seguidos (o varias personas) comparten la misma lectura (incidente 24-nov).
+    filas = await compartirLectura("compras:bandeja", filasBandeja);
   } catch (e) {
     console.error("[shipping-v2/compras]", e);
     error = "No se pudo leer la bandeja. Recarga la página.";
