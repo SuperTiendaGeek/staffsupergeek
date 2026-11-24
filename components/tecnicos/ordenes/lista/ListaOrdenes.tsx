@@ -26,6 +26,9 @@ type OrdenListado = {
 
 type Props = {
   filas: FilaTablero[] | null;
+  /** No se pudo leer la lista de abiertas (se ofrece reintentar, no «Cargando…» para siempre). */
+  fallo: boolean;
+  onReintentar: () => void;
   responsables: Responsables;
   yo: string | null;
   filtro: FiltroTarjeta;
@@ -112,7 +115,7 @@ function usePaginas(params: string | null, refresco: number) {
   return { ...estado, mas: estado.siguiente ? () => setPedirMas(estado.siguiente) : undefined };
 }
 
-export function ListaOrdenes({ filas, responsables, yo, filtro, buscar, bandeja, onBandeja, refresco }: Props) {
+export function ListaOrdenes({ filas, fallo, onReintentar, responsables, yo, filtro, buscar, bandeja, onBandeja, refresco }: Props) {
   const [conteos, setConteos] = useState<{ entregadas: number; reciclaje: number } | null>(null);
   const [verAbiertas, setVerAbiertas] = useState(POR_PAGINA);
   const [repuestos, setRepuestos] = useState<Record<string, { texto: string; tono: string }>>({});
@@ -189,7 +192,7 @@ export function ListaOrdenes({ filas, responsables, yo, filtro, buscar, bandeja,
             <div className={`${CABECERA} min-w-[900px] grid-cols-[84px_minmax(0,1.1fr)_minmax(0,1.3fr)_150px_70px_minmax(0,1.5fr)_30px_46px]`}>
               <span>Orden</span><span>Cliente</span><span>Equipo</span><span>Estado</span><span>Ingresó</span><span>Qué pasa</span><span>Resp.</span><span className="text-right">Hace</span>
             </div>
-            {!filas ? <p className="border-t border-[#2C2D29] px-3.5 py-3 text-sm text-[#B5B5AE]">Cargando…</p>
+            {!filas ? <SinDatos fallo={fallo} onReintentar={onReintentar} />
               : !visibles.length ? <p className="border-t border-[#2C2D29] px-3.5 py-3 text-sm text-[#B5B5AE]">Ninguna orden en este filtro.</p>
                 : visibles.map((f) => {
                   const nivel = f.baja ? (f.baja.nivel === "cumple" ? "atencion" : "porVencer") : f.nivel;
@@ -223,9 +226,13 @@ export function ListaOrdenes({ filas, responsables, yo, filtro, buscar, bandeja,
         ) : bandeja === "baja" ? (
           <>
             <div className={`${CABECERA} min-w-[900px] grid-cols-[84px_minmax(0,1.1fr)_minmax(0,1.3fr)_150px_130px_60px_minmax(0,1.2fr)_30px]`}>
-              <span>Orden</span><span>Cliente</span><span>Equipo</span><span>Estado</span><span>Cuenta desde</span><span>Días</span><span>Política</span><span>Resp.</span>
+              <span>Orden</span><span>Cliente</span><span>Equipo</span><span>Estado</span>
+              <span className="cursor-help underline decoration-dotted underline-offset-2" title="Sin completar: desde el ingreso. Completada y avisada: desde que se completó.">Cuenta desde</span>
+              <span>Días</span>
+              <span className="cursor-help underline decoration-dotted underline-offset-2" title="Próxima a baja: 60 a 89 días. Cumple política: 90 días o más.">Política</span>
+              <span>Resp.</span>
             </div>
-            {!filas ? <p className="border-t border-[#2C2D29] px-3.5 py-3 text-sm text-[#B5B5AE]">Cargando…</p>
+            {!filas ? <SinDatos fallo={fallo} onReintentar={onReintentar} />
               : !paraBaja.length ? <p className="border-t border-[#2C2D29] px-3.5 py-3 text-sm text-[#B5B5AE]">Ninguna orden llega a 60 días.</p>
                 : paraBaja.map((f) => {
                   const b = f.baja!;
@@ -246,11 +253,6 @@ export function ListaOrdenes({ filas, responsables, yo, filtro, buscar, bandeja,
                     </Link>
                   );
                 })}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-[#2C2D29] px-3.5 py-2 text-xs text-[#B5B5AE]">
-              <span>Sin completar: desde el ingreso · Completada y avisada: desde que se completó</span>
-              <span className="ml-auto inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#FFB547]" />Próxima a baja: 60 a 89 días</span>
-              <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-[#FF7A70]" />Cumple política: 90 días o más</span>
-            </div>
           </>
         ) : (
           <TablaServidor tipo={bandeja} datos={servidor} total={bandeja === "entregadas" ? conteos?.entregadas ?? null : conteos?.reciclaje ?? null} responsables={responsables} enBaja={enBaja} />
@@ -258,6 +260,15 @@ export function ListaOrdenes({ filas, responsables, yo, filtro, buscar, bandeja,
       </div>
     </div>
   );
+}
+
+function SinDatos({ fallo, onReintentar }: { fallo: boolean; onReintentar: () => void }) {
+  return fallo ? (
+    <p className="flex items-center gap-3 border-t border-[#2C2D29] px-3.5 py-3 text-sm">
+      <span className="text-[#FF9C94]">No se pudieron leer las órdenes abiertas.</span>
+      <button type="button" onClick={onReintentar} className="font-bold text-[#D7FF4F] hover:underline">Reintentar</button>
+    </p>
+  ) : <p className="border-t border-[#2C2D29] px-3.5 py-3 text-sm text-[#B5B5AE]">Cargando…</p>;
 }
 
 function TablaServidor({ tipo, datos, total = null, responsables, enBaja }: {
@@ -293,7 +304,7 @@ function TablaServidor({ tipo, datos, total = null, responsables, enBaja }: {
           })}
       {datos.filas.length > 0 && (
         <Pie mostradas={datos.filas.length} total={total} onMas={datos.mas}
-          extra={tipo === "busqueda" ? <span>{datos.cargando ? "Buscando…" : "En todas las bandejas"}</span> : <span>La más reciente primero</span>} />
+          extra={tipo === "busqueda" ? (datos.cargando ? <span>Buscando…</span> : undefined) : <span>La más reciente primero</span>} />
       )}
     </>
   );
