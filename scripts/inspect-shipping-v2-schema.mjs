@@ -748,6 +748,31 @@ async function main() {
     schema.tables[tableName] = { id: table.id, fields };
   }
 
+  // --select-options=fldA,fldB refresca solo esas listas existentes, sin incorporar
+  // cambios ajenos de la base. Los archivos siguen saliendo de este generador.
+  const selected = new Set(process.argv.slice(2).flatMap((arg) => {
+    if (!arg.startsWith("--select-options=")) throw new Error(`Argumento desconocido: ${arg}`);
+    return arg.slice("--select-options=".length).split(",").filter(Boolean);
+  }));
+  if (selected.size) {
+    const previous = JSON.parse(await readFile(JSON_OUT, "utf8"));
+    if (previous.baseId !== baseId) throw new Error("El esquema guardado pertenece a otra base.");
+    for (const [tableName, table] of Object.entries(schema.tables)) {
+      for (const [fieldName, field] of Object.entries(table.fields)) {
+        if (!selected.has(field.id)) continue;
+        const saved = previous.tables[tableName]?.fields[fieldName];
+        if (!saved || saved.id !== field.id || saved.type !== field.type ||
+            !["singleSelect", "multipleSelects"].includes(field.type)) {
+          throw new Error(`No se pueden refrescar solo las opciones de ${tableName}: ${fieldName}`);
+        }
+        saved.options = field.options;
+        selected.delete(field.id);
+      }
+    }
+    if (selected.size) throw new Error(`Campos no encontrados: ${[...selected].join(", ")}`);
+    schema.tables = previous.tables;
+  }
+
   const validation = {
     items: validateExpectedItems(schema.tables[TABLES.items]),
     proveedores: validateExpectedFields(schema.tables[TABLES.proveedores], EXPECTED_PROVIDER_FIELDS),
