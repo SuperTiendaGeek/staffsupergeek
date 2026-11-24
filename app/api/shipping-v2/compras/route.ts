@@ -4,6 +4,7 @@ import { requireShippingV2Session } from "@/lib/shipping-v2/auth";
 import { perfilShippingV2 } from "@/lib/shipping-v2/access";
 import { puedeComprar } from "@/lib/compras/reglas";
 import { filasBandeja } from "@/lib/compras/servidor";
+import { compartirLectura } from "@/lib/compartir-lectura";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export async function GET() {
     return NextResponse.json({ success: false, error: "Solo Staff y Administradores ven las compras." }, { status: 403 });
   }
   try {
-    return NextResponse.json({ success: true, data: await filasBandeja() });
+    return NextResponse.json({ success: true, data: await compartirLectura("compras:bandeja", filasBandeja) });
   } catch (e) {
     console.error("[api/shipping-v2/compras]", e);
     return NextResponse.json({ success: false, error: "No se pudo leer la bandeja." }, { status: 503 });

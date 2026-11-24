@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getShippingV2AccessContextForSession, getShippingV2ResumenPestanas } from "@/lib/shipping-v2/airtable";
 import { requireShippingV2Session } from "@/lib/shipping-v2/auth";
+import { compartirLectura } from "@/lib/compartir-lectura";
 
 export const dynamic = "force-dynamic";
 
@@ -10,11 +11,15 @@ export async function GET() {
   if (response) return response;
   try {
     const access = await getShippingV2AccessContextForSession(session);
-    const data = await getShippingV2ResumenPestanas(access);
+    // Se pide en cada cambio de pestaña (31 llamadas): quien llega mientras otra
+    // lectura igual sigue en curso espera esa misma (incidente 24-nov). El resumen
+    // es igual para todo el personal; un proveedor no lo ve.
+    const compartido = access.providerId ? null : await compartirLectura("shipping-v2:resumen-pestanas", () => getShippingV2ResumenPestanas(access));
+    const data = compartido ? { ...compartido } : null;
     // Fase 2: cuántas solicitudes esperan compra (solo lo ve quien compra).
     if (data && access.isAdmin && access.permissions.canEditItems) {
       const { solicitudesEnEstados } = await import("@/lib/compras/airtable");
-      data.porComprar = (await solicitudesEnEstados(["Por comprar"]).catch(() => [])).length;
+      data.porComprar = await compartirLectura("compras:por-comprar", async () => (await solicitudesEnEstados(["Por comprar"]).catch(() => [])).length);
     }
     return NextResponse.json({ success: true, data });
   } catch (error) {
