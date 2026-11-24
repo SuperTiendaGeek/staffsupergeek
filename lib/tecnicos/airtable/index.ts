@@ -46,6 +46,10 @@ export interface OrdenListado {
   estadoActual: EstadoOrden | string;
   fechaIngreso: string;
   ultimaModificacion: string;
+  /** R8: para las bandejas de la Lista. */
+  fechaEntrega?: string | null;
+  estadoCambiadoEl?: string | null;
+  responsableId?: string | null;
 }
 
 export interface OrdenesPageResult {
@@ -206,6 +210,10 @@ export interface FetchOrdenesPageOptions {
   q?: string | null;
   estado?: string | null;
   risk?: OrdenesRiskFilter | null;
+  /** R8: false = sin conteos (ahorra varias consultas en «Ver más» y en las bandejas). */
+  resumen?: boolean;
+  /** R8: «entrega» ordena por fecha de entrega; «cambio» por cuándo cambió el estado. */
+  orden?: "ingreso" | "entrega" | "cambio";
 }
 
 export type OrdenesRiskFilter = "warning" | "critical";
@@ -324,6 +332,9 @@ export interface OrdenDetalle {
   /** Rediseño R1: cuándo se avisó al cliente que retire y cuándo se le envió el presupuesto (ISO). */
   clienteAvisado?: string | null;
   presupuestoEnviado?: string | null;
+  /** R8: política de baja de las completadas («Completada el» y, de respaldo, «Estado cambiado el»). */
+  completadaEl?: string | null;
+  estadoCambiadoEl?: string | null;
   /** Rediseño R6: de qué orden nace (si el equipo regresó) y qué regresos tuvo. */
   regreso?: {
     ordenAnteriorId: string | null;
@@ -852,6 +863,9 @@ const mapOrdenListadoRecord = (record: {
       ["Ultima Modificacion", "\u00daltima Modificacion", "\u00daltima Modificaci\u00f3n"],
       ""
     ),
+    fechaEntrega: typeof f["Fecha de entrega"] === "string" ? (f["Fecha de entrega"] as string) : null,
+    estadoCambiadoEl: typeof f["Estado cambiado el"] === "string" ? (f["Estado cambiado el"] as string) : null,
+    responsableId: Array.isArray(f["Responsable"]) && typeof f["Responsable"][0] === "string" ? (f["Responsable"][0] as string) : null,
   };
 };
 
@@ -863,7 +877,7 @@ const countOrdenesByFormula = async ({
 }: {
   q?: string | null;
   estado?: string | null;
-  risk: OrdenesRiskFilter;
+  risk: OrdenesRiskFilter | null;
   client: AirtableClient;
 }): Promise<number> => {
   let count = 0;
@@ -994,6 +1008,8 @@ export const fetchOrdenesPage = async ({
   q,
   estado,
   risk,
+  resumen = true,
+  orden = "ingreso",
 }: FetchOrdenesPageOptions = {}): Promise<OrdenesPageResult> => {
   const client = getClient();
   const normalizedPageSize = clampAirtablePageSize(pageSize);
@@ -1005,8 +1021,14 @@ export const fetchOrdenesPage = async ({
   if (offset) {
     url.searchParams.set("offset", offset);
   }
-  url.searchParams.append("sort[0][field]", "Fecha de Ingreso");
+  // R8: las entregadas, la más reciente primero (las viejas sin fecha de entrega van al final por ingreso).
+  const orden1 = orden === "entrega" ? "Fecha de entrega" : orden === "cambio" ? "Estado cambiado el" : "Fecha de Ingreso";
+  url.searchParams.append("sort[0][field]", orden1);
   url.searchParams.append("sort[0][direction]", "desc");
+  if (orden1 !== "Fecha de Ingreso") {
+    url.searchParams.append("sort[1][field]", "Fecha de Ingreso");
+    url.searchParams.append("sort[1][direction]", "desc");
+  }
   const filterFormula = buildOrdenesFilterFormula({ q, estado, risk });
   if (filterFormula) {
     url.searchParams.append("filterByFormula", filterFormula);
@@ -1020,6 +1042,9 @@ export const fetchOrdenesPage = async ({
     "Equipo",
     "Ingresa Por",
     "Estado Actual",
+    "Fecha de entrega",
+    "Estado cambiado el",
+    "Responsable",
   ].forEach(
     (field) => url.searchParams.append("fields[]", field)
   );
@@ -1038,10 +1063,12 @@ export const fetchOrdenesPage = async ({
   const data = (await res.json()) as { records?: AirtableRow[]; offset?: string };
   const records = data.records ?? [];
 
-  const [riskSummary, statusCounts] = await Promise.all([
-    fetchOrdenesRiskSummary({ q, estado, client }),
-    fetchOrdenesStatusCounts({ q, risk, client }),
-  ]);
+  const [riskSummary, statusCounts] = resumen
+    ? await Promise.all([
+        fetchOrdenesRiskSummary({ q, estado, client }),
+        fetchOrdenesStatusCounts({ q, risk, client }),
+      ])
+    : [{ warningCount: 0, criticalCount: 0 }, createEmptyOrdenesStatusCounts()];
 
   return {
     records: records.map(mapOrdenListadoRecord),
@@ -1052,6 +1079,10 @@ export const fetchOrdenesPage = async ({
     statusCounts,
   };
 };
+
+/** R8: cuántas órdenes hay en un estado (bandejas «Entregadas» y «Reciclaje» de la Lista). */
+export const contarOrdenesEnEstado = async (estado: EstadoOrden): Promise<number> =>
+  countOrdenesByFormula({ estado, risk: null, client: getClient() });
 
 export const fetchOrdenes = async (limit = 30): Promise<OrdenListado[]> => {
   const result = await fetchOrdenesPage({ pageSize: limit });
@@ -1668,6 +1699,8 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
     regreso: leerRegreso(f),
     clienteAvisado: typeof f["Cliente avisado"] === "string" ? (f["Cliente avisado"] as string) : null,
     presupuestoEnviado: typeof f["Presupuesto enviado"] === "string" ? (f["Presupuesto enviado"] as string) : null,
+    completadaEl: typeof f["Completada el"] === "string" ? (f["Completada el"] as string) : null,
+    estadoCambiadoEl: typeof f["Estado cambiado el"] === "string" ? (f["Estado cambiado el"] as string) : null,
   };
 
   // Historial: preferir IDs vinculados desde la orden
@@ -2720,7 +2753,12 @@ export const updateOrdenEstado = async ({
   const resOrden = await fetch(urlOrden, {
     method: "PATCH",
     headers: client.headers,
-    body: JSON.stringify({ fields: { "Estado Actual": nuevoEstado } }),
+    // R8: al pasar a Completado queda la fecha (la política de baja de las completadas cuenta desde aquí).
+    body: JSON.stringify({
+      fields: nuevoEstado === "Completado"
+        ? { "Estado Actual": nuevoEstado, "Completada el": new Date().toISOString() }
+        : { "Estado Actual": nuevoEstado },
+    }),
   });
 
   if (!resOrden.ok) {
@@ -2744,12 +2782,15 @@ export const updateOrdenEstado = async ({
 export const markOrdenBajaInterna = async ({
   ordenRecordId,
   daysWaiting,
+  motivo,
   creadoPorNombre,
   creadoPorEmail,
   creadoPorUsuarioId,
 }: {
   ordenRecordId: string;
   daysWaiting: number;
+  /** R8: el texto que queda en la Actividad (dice desde cuándo se contó). */
+  motivo?: string;
   creadoPorNombre?: string | null;
   creadoPorEmail?: string | null;
   creadoPorUsuarioId?: string | null;
@@ -2773,7 +2814,7 @@ export const markOrdenBajaInterna = async ({
 
   const historial = await createHistorialEntrada({
     ordenRecordId,
-    estadoNuevo: `Orden marcada como baja interna por política de abandono. Cliente sin respuesta durante ${daysWaiting} días.`,
+    estadoNuevo: motivo || `Orden marcada como baja interna por política de abandono. Cliente sin respuesta durante ${daysWaiting} días.`,
     creadoPorNombre,
     creadoPorEmail,
     creadoPorUsuarioId,

@@ -962,7 +962,7 @@ export function OrdenDetalleClient() {
       });
       const json = await res.json();
       if (!res.ok || !json.success) {
-        throw new Error(json.error || "No se pudo marcar la baja interna");
+        throw new Error(json.error || "No se pudo enviar a reciclaje");
       }
 
       setOrden((prev) =>
@@ -978,7 +978,8 @@ export function OrdenDetalleClient() {
       );
       setEstadoSeleccionado("Enviado a Reciclaje");
       setBajaModalOpen(false);
-      setEstadoMessage("Orden marcada como baja interna");
+      setEstadoMessage("Orden enviada a reciclaje");
+      avisarCambioAlertas();
       setTimeout(() => setEstadoMessage(null), 1800);
     } catch (err) {
       setBajaError(err instanceof Error ? err.message : "Error desconocido");
@@ -1316,7 +1317,7 @@ export function OrdenDetalleClient() {
               <GuardarSolucionCard ordenId={orden.recordId} estadoOrden={orden.estadoActual} recienCompletado={recienCompletado} />
             )}
 
-            {/* Política de baja (60/90 días en «Esperando Respuesta»): una franja con su acción. */}
+            {/* Política de baja (R8): «Esperando Respuesta» desde el ingreso; completada y avisada desde que se completó. 60 días avisa, 90 cumple. */}
             {abandonmentStatus.level !== "none" && (
               <section className={`flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border px-3 py-2 ${
                 abandonmentStatus.level === "critical" ? "border-[var(--sg-danger)] bg-[var(--sg-danger-soft)]" : "border-[var(--sg-warning)] bg-[var(--sg-warning-soft)]"
@@ -1337,7 +1338,8 @@ export function OrdenDetalleClient() {
                 {abandonmentStatus.level === "critical" && (
                   <button type="button" onClick={() => { setBajaError(null); setBajaModalOpen(true); }}
                     className={`${BTN_SECUNDARIO} !border-[var(--sg-danger)] !text-[var(--sg-danger)]`}>
-                    Marcar baja interna
+                    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5"><path d="M2.5 4h11M6.5 4V2.6h3V4M4 4l.7 9.4h6.6L12 4M6.6 6.6v4.6M9.4 6.6v4.6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                    Enviar a reciclaje
                   </button>
                 )}
               </section>
@@ -1497,10 +1499,10 @@ export function OrdenDetalleClient() {
                       Confirmación requerida
                     </p>
                     <h3 className="text-lg font-extrabold text-[var(--sg-text-primary)]">
-                      Marcar baja interna
+                      ¿Enviar {orden?.idVisible ?? "la orden"} a reciclaje?
                     </h3>
                     <p className="text-sm leading-6 text-[var(--sg-text-secondary)]">
-                      Esta acción cambiará el estado a Enviado a Reciclaje y registrará un movimiento en el historial. No se ejecuta automáticamente.
+                      El estado pasa a «Enviado a Reciclaje» y queda escrito en la Actividad, con los días y desde cuándo se contaron.
                     </p>
                   </div>
 
@@ -1530,7 +1532,7 @@ export function OrdenDetalleClient() {
                       disabled={bajaSaving}
                       className="inline-flex h-10 items-center justify-center rounded-[var(--sg-radius-md)] border border-[var(--sg-danger)] bg-[var(--sg-danger-soft)] px-4 text-sm font-semibold text-[var(--sg-danger)] transition hover:brightness-110 disabled:opacity-60"
                     >
-                      {bajaSaving ? "Marcando..." : "Confirmar baja interna"}
+                      {bajaSaving ? "Enviando…" : "Sí, enviar a reciclaje"}
                     </button>
                   </div>
                 </div>

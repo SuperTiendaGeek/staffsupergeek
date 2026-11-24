@@ -15,6 +15,7 @@
 // en minutos desde la medianoche (570 = 9:30).
 
 import { diasDeTiempo, fechaEcuador } from "@/lib/pedidos-especiales/seguimiento";
+import { DIAS_PROXIMA_BAJA, evaluarBaja } from "@/lib/tecnicos/orden/baja";
 
 // ─── Configuración ───────────────────────────────────────────────────────────
 
@@ -68,7 +69,8 @@ export const CONFIG_INICIAL: ConfigAlertas = {
   },
 };
 
-export const DIAS_BAJA = 60;
+/** Desde aquí la orden es de la política de baja (lib/tecnicos/orden/baja.ts) y su alerta calla. */
+export const DIAS_BAJA = DIAS_PROXIMA_BAJA;
 
 // ─── Reloj del taller ────────────────────────────────────────────────────────
 
@@ -155,6 +157,9 @@ export type OrdenAlerta = {
   pospuestaHasta: string | null;
   clienteAvisado: string | null;
   presupuestoEnviado: string | null;
+  /** «Completada el» y, de respaldo, «Estado cambiado el» (política de baja, R8). */
+  completadaEl?: string | null;
+  estadoCambiadoEl?: string | null;
   lineas: LineaAlerta[];
 };
 
@@ -243,17 +248,19 @@ export function situaciones(o: OrdenAlerta, ahora: Date): Candidata[] {
   const vivas = o.lineas.filter((l) => l.estado !== "Rechazada");
   const aprobadas = vivas.filter((l) => APROBADA.has(l.estado));
 
+  // Desde 60 días (Esperando Respuesta: desde el ingreso; Completado avisado:
+  // desde que se completó) la orden es de la política de baja y aquí no suena
+  // nada: se ve en «Para baja» (R8).
+  if (evaluarBaja(o, ahora)) return [];
+
   if (o.estado === "Completado") {
     c.push(o.clienteAvisado ? { clave: "noRetira", desde: o.clienteAvisado } : { clave: "sinAvisar", desde: mov });
     return c;
   }
 
   // «Esperando Respuesta» = la pelota la tiene el cliente (aunque haya líneas
-  // aprobadas: puede ser un pago o una propuesta nueva). Desde 60 días después
-  // del ingreso es de la política de baja (cuenta igual que sus filtros) y aquí
-  // no suena nada.
+  // aprobadas: puede ser un pago o una propuesta nueva).
   if (o.estado === "Esperando Respuesta") {
-    if ((ahora.getTime() - Date.parse(o.fechaIngreso)) / DIA >= DIAS_BAJA) return [];
     c.push({ clave: "clienteNoResponde", desde: maxIso([o.presupuestoEnviado, mov]) ?? mov });
     return c;
   }
@@ -293,6 +300,50 @@ export function situaciones(o: OrdenAlerta, ahora: Date): Candidata[] {
 }
 
 const PESO: Record<Nivel, number> = { atencion: 2, porVencer: 1, alDia: 0 };
+
+/**
+ * Tablero (R8): mientras la situación está dentro de su plazo, la tarjeta dice
+ * qué está pasando sin sonar a problema («Presupuesto enviado», no «Cliente no responde»).
+ */
+export const TEXTO_AL_DIA: Record<ClaveAlerta, string> = {
+  sinResponsable: "Sin responsable",
+  sinPresupuesto: "Por diagnosticar",
+  presupuestoSinEnviar: "Presupuesto por enviar",
+  clienteNoResponde: "Presupuesto enviado",
+  aprobadoSinEmpezar: "Aprobado",
+  sinAvance: "En trabajo",
+  repuestoAtrasado: "Repuesto atrasado",
+  esperaCliente: "Esperando al cliente",
+  todoHecho: "Todo hecho, por completar",
+  sinAvisar: "Por avisar al cliente",
+  noRetira: "Avisado",
+};
+
+/** Texto de la tarjeta del tablero para una alerta. */
+export function textoTarjeta(a: Alerta): string {
+  if (a.pospuestaHasta) return a.texto;
+  return a.nivel === "alDia" ? TEXTO_AL_DIA[a.clave] : a.texto;
+}
+
+/**
+ * Qué decir en la tarjeta del tablero cuando la orden no tiene alerta (R8):
+ * casi siempre es una espera de repuesto que aún no se atrasa.
+ */
+export function notaSinAlerta(o: OrdenAlerta): string {
+  const pendientes = o.lineas.filter((l) => l.estado !== "Rechazada" && APROBADA.has(l.estado) && trabajo(l) !== "Hecho");
+  const repuesto = pendientes.filter((l) => (trabajo(l) === "En espera" && l.motivoEspera === "Repuesto") || (l.bajoPedido && trabajo(l) === "Por hacer"));
+  if (repuesto.length) {
+    const etas = repuesto.map(llegadaPrevista).filter((x): x is string => !!x).sort();
+    return etas.length ? `Espera repuesto · llega ${diaCorto(etas[0])}` : "Espera repuesto";
+  }
+  if (pendientes.length) return "En trabajo";
+  return "Al día";
+}
+
+/** Desde cuándo no se mueve la orden (para el «hace» de las tarjetas sin alerta). */
+export function ultimoMovimiento(o: OrdenAlerta): string {
+  return maxIso([o.ultimoMovimiento, o.fechaIngreso]) ?? o.fechaIngreso;
+}
 
 /** La situación que manda en la orden, con su semáforo. null = nada que vigilar. */
 export function evaluarOrden(o: OrdenAlerta, cfg: ConfigAlertas, ahora: Date): Alerta | null {

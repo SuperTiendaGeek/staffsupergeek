@@ -31,15 +31,15 @@ const actividad = leer("components/tecnicos/ordenes/ActividadCard.tsx");
 assert(actividad.includes("pedirNota"), "«Anotar avance» abre la nota interna de la Actividad");
 
 // Una sola lectura de alertas para la barra y la lista (menos consultas a Airtable)
-assert(barra.includes("leerAlertasCompartidas(") && leer("app/tecnicos/ordenes/OrdenesPageClient.tsx").includes("leerAlertasCompartidas("), "la barra y la lista comparten la lectura de alertas");
+assert(barra.includes("leerAlertasCompartidas(") && leer("components/tecnicos/ordenes/lista/VistasOrdenes.tsx").includes("leerAlertasCompartidas("), "la barra y la lista comparten la lectura de alertas");
 const panel = leer("components/tecnicos/ordenes/PanelCobros.tsx");
 assert(panel.includes("j.ocupado") && panel.includes("30_000") && leer("app/api/tecnicos/ordenes/cobros/route.ts").includes("ocupado: true"), "panel de cobros: si Airtable está ocupado, aviso corto y otro intento solo (sin el error crudo)");
 
-// Lista
-const lista = leer("app/tecnicos/ordenes/OrdenesPageClient.tsx");
+// Lista (desde R8 la barra de filtros vive en VistasOrdenes)
+const lista = leer("components/tecnicos/ordenes/lista/VistasOrdenes.tsx");
 assert(lista.includes('"Atención"') && lista.includes('"Por vencer"') && lista.includes('"Sin responsable"'), "la lista tiene los filtros de alertas");
 assert(!lista.includes("Alertas de abandono") && !lista.includes("Limpiar filtro"), "ya no está la tarjeta vieja «Alertas de abandono»");
-assert(lista.includes("?alerta="), "la barra abre la lista ya filtrada");
+assert(lista.includes('p.get("alerta")'), "la barra abre la lista ya filtrada (?alerta=…)");
 
 // Último movimiento al escribir en la Actividad
 const historial = leer("lib/tecnicos/airtable/index.ts");

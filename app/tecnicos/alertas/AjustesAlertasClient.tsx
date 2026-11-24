@@ -152,7 +152,7 @@ export function AjustesAlertasClient() {
           <span className="col-span-2 justify-self-end whitespace-nowrap text-xs font-bold text-[#FF9C94]" title="Día que el cliente aprobó + el tiempo estimado de la línea">Al pasar la fecha prevista</span>
         </div>
         <div className={`${fila} bg-[#191A17] text-[#B5B5AE]`}>
-          <span>Esperando respuesta (política de baja)</span>
+          <span title="Esperando respuesta: desde el ingreso. Completada y avisada: desde que se completó.">Política de baja (esperando respuesta y completadas)</span>
           <span className="justify-self-end tabular-nums">{DIAS_BAJA} d</span>
           <span className="justify-self-end tabular-nums">90 d</span>
         </div>

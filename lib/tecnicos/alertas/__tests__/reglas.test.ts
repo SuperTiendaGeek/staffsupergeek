@@ -4,7 +4,7 @@
  */
 import {
   CONFIG_INICIAL, cuentaComoMovimiento, evaluarOrden, leerHora, leerPlazo, llegadaPrevista, mezclarConfig,
-  minutosHabiles, proximoDiaHabil, resumenAlertas, revisarConfig, revisarPosponer, situaciones, textoHace, textoHora,
+  minutosHabiles, proximoDiaHabil, resumenAlertas, revisarConfig, revisarPosponer, situaciones, textoHace, textoHora, textoTarjeta,
   type LineaAlerta, type OrdenAlerta,
 } from "../reglas";
 
@@ -56,6 +56,11 @@ assert(claves({ ...base, lineas: [linea({ estadoTrabajo: "Hecho" })] }).join() =
 assert(claves({ ...base, lineas: [linea({ estadoTrabajo: "En espera", motivoEspera: "Respuesta del cliente" })] }).join() === "esperaCliente", "en espera del cliente → «Esperando al cliente»");
 assert(claves({ ...base, estado: "Completado" }).join() === "sinAvisar", "completado sin avisar → «Cliente sin avisar»");
 assert(claves({ ...base, estado: "Completado", clienteAvisado: ec("2026-11-24", "10:00").toISOString() }).join() === "noRetira", "completado y avisado → «Avisado, no retira»");
+// R8: completada y avisada hace 60+ días (desde que se completó) → es de la política de baja; la alerta calla.
+assert(claves({ ...base, estado: "Completado", fechaIngreso: ec("2026-08-01", "10:00").toISOString(), completadaEl: ec("2026-09-20", "10:00").toISOString(), clienteAvisado: ec("2026-09-20", "11:00").toISOString() }).length === 0,
+  "completada y avisada hace 66 días → política de baja (sin alerta)");
+assert(claves({ ...base, estado: "Completado", fechaIngreso: ec("2026-08-01", "10:00").toISOString(), completadaEl: ec("2026-11-10", "10:00").toISOString(), clienteAvisado: ec("2026-11-10", "11:00").toISOString() }).join() === "noRetira",
+  "ingresó hace 116 días pero se completó hace 15: sigue «Avisado, no retira» (cuenta desde que se completó)");
 
 // Repuesto: día que aprobó + tiempo estimado de la línea
 const rep = linea({ estadoTrabajo: "En espera", motivoEspera: "Repuesto", tiempoEstimado: "2 a 3 semanas", fechaAprobacion: ec("2026-11-02", "10:00").toISOString() });
@@ -119,6 +124,13 @@ assert(revisarConfig({ horario: H, plazos: CONFIG_INICIAL.plazos }).ok, "los aju
 assert(cuentaComoMovimiento("Nota") && cuentaComoMovimiento("") && cuentaComoMovimiento(null), "notas y cambios cuentan como movimiento");
 assert(!cuentaComoMovimiento("Contraseña vista") && !cuentaComoMovimiento("Alerta pospuesta") && !cuentaComoMovimiento("Responsable"),
   "ver la contraseña, posponer o cambiar responsable no cuentan");
+
+// R8: la tarjeta del tablero no asusta cuando está dentro del plazo.
+{
+  const al = { clave: "clienteNoResponde" as const, nivel: "alDia" as const, texto: "Cliente no responde", desde: "", minutos: 10, hace: "1 d", pospuestaHasta: null, accion: null };
+  assert(textoTarjeta(al) === "Presupuesto enviado" && textoTarjeta({ ...al, nivel: "atencion" }) === "Cliente no responde" && textoTarjeta({ ...al, pospuestaHasta: "2026-12-01" }) === "Cliente no responde",
+    "tarjeta: «Presupuesto enviado» al día; «Cliente no responde» cuando suena o está pospuesta");
+}
 
 if (fallos > 0) { console.error(`\n${fallos} fallo(s).`); process.exit(1); }
 console.log("\nTodo bien.");
