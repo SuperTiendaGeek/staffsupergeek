@@ -135,7 +135,7 @@ export function VistasOrdenes({ onNuevaOrden, refresco }: { onNuevaOrden: () => 
           onBuscarEnTodas={() => elegirVista("lista")} onReintentar={() => setRecarga((n) => n + 1)} />
       )}
       {vista === "lista" && (
-        <ListaOrdenes filas={filas} responsables={responsables} yo={yo} filtro={filtro} buscar={buscar}
+        <ListaOrdenes filas={filas} fallo={fallo} onReintentar={() => setRecarga((n) => n + 1)} responsables={responsables} yo={yo} filtro={filtro} buscar={buscar}
           bandeja={bandeja} onBandeja={(b) => { setBandeja(b); setTexto(""); setBuscar(""); if (b !== "abiertas") setFiltro(null); }} refresco={refresco + recarga} />
       )}
       {vista === "cobros" && <PanelCobros inmediato />}

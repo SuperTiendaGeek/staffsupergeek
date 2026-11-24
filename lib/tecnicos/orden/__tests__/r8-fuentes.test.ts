@@ -31,6 +31,10 @@ const lista = leer("components/tecnicos/ordenes/lista/ListaOrdenes.tsx");
 assert(lista.includes("resumen=0") && lista.includes("/api/tecnicos/ordenes/conteos"), "la Lista pide sin conteos pesados y los números de bandeja aparte");
 assert(lista.includes("IconoReciclaje") && lista.includes("rgba(255,122,112,.08)"), "reciclaje: basurero rojo y fondo rojizo");
 assert(['"Abiertas"', '"Para baja"', '"Entregadas"', '"Reciclaje"'].every((x) => lista.includes(x)), "cuatro bandejas");
+// R8b (revisión UX de Claude Code): si falla la lectura no se queda en «Cargando…»; la leyenda de baja va en tooltip; la búsqueda no repite su aviso al pie.
+assert(lista.includes("No se pudieron leer las órdenes abiertas.") && vistas.includes("fallo={fallo} onReintentar="), "si falla la lectura de abiertas, la Lista ofrece reintentar");
+assert(!lista.includes("<span>Sin completar: desde el ingreso") && lista.includes('title="Sin completar: desde el ingreso.'), "«Para baja»: la explicación va en tooltip de la cabecera");
+assert(!lista.includes('"En todas las bandejas"'), "la búsqueda no repite «en todas las bandejas» al pie");
 assert(existsSync("app/api/tecnicos/ordenes/conteos/route.ts") && leer("app/api/tecnicos/ordenes/conteos/route.ts").includes("5 * 60_000"), "los conteos de bandeja se guardan 5 minutos");
 
 // Datos
