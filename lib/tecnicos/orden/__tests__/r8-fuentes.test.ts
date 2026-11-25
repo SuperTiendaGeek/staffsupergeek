@@ -33,7 +33,11 @@ assert(lista.includes("IconoReciclaje") && lista.includes("rgba(255,122,112,.08)
 assert(['"Abiertas"', '"Para baja"', '"Entregadas"', '"Reciclaje"'].every((x) => lista.includes(x)), "cuatro bandejas");
 // R8b (revisión UX de Claude Code): si falla la lectura no se queda en «Cargando…»; la leyenda de baja va en tooltip; la búsqueda no repite su aviso al pie.
 assert(lista.includes("No se pudieron leer las órdenes abiertas.") && vistas.includes("fallo={fallo} onReintentar="), "si falla la lectura de abiertas, la Lista ofrece reintentar");
-assert(!lista.includes("<span>Sin completar: desde el ingreso") && lista.includes('title="Sin completar: desde el ingreso.'), "«Para baja»: la explicación va en tooltip de la cabecera");
+// R8c (dueño, 25-nov): sin columna «Política»; «Días» lo dice con color; cabeceras sin globo ni subrayado.
+assert(!lista.includes("<span>Sin completar: desde el ingreso") && !lista.includes("Sin completar: desde el ingreso"), "«Para baja»: sin leyenda ni globo de ayuda");
+assert(!lista.includes(">Política<") && !lista.includes("Cumple política de baja") && !lista.includes("cursor-help"), "«Para baja»: sin columna «Política» ni cabeceras con globo o subrayado");
+assert(lista.includes("<span>Cuenta desde</span><span>Días</span><span>Resp.</span>"), "«Para baja»: columnas Cuenta desde · Días · Resp.");
+assert(/rojo \? "text-\[#FF9C94\]" : "text-\[#FFB547\]"[\s\S]{0,120}\{b\.dias\} d[\s\S]{0,60}!rojo && [^\n]*faltan \{b\.faltan\}/.test(lista), "«Días»: rojo «141 d» si cumple; ámbar «72 d · faltan 18» si es próxima");
 assert(!lista.includes('"En todas las bandejas"'), "la búsqueda no repite «en todas las bandejas» al pie");
 assert(existsSync("app/api/tecnicos/ordenes/conteos/route.ts") && leer("app/api/tecnicos/ordenes/conteos/route.ts").includes("5 * 60_000"), "los conteos de bandeja se guardan 5 minutos");
 

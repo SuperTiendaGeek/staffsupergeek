@@ -225,12 +225,9 @@ export function ListaOrdenes({ filas, fallo, onReintentar, responsables, yo, fil
           </>
         ) : bandeja === "baja" ? (
           <>
-            <div className={`${CABECERA} min-w-[900px] grid-cols-[84px_minmax(0,1.1fr)_minmax(0,1.3fr)_150px_130px_60px_minmax(0,1.2fr)_30px]`}>
+            <div className={`${CABECERA} min-w-[900px] grid-cols-[84px_minmax(0,1.1fr)_minmax(0,1.3fr)_150px_140px_130px_30px]`}>
               <span>Orden</span><span>Cliente</span><span>Equipo</span><span>Estado</span>
-              <span className="cursor-help underline decoration-dotted underline-offset-2" title="Sin completar: desde el ingreso. Completada y avisada: desde que se completó.">Cuenta desde</span>
-              <span>Días</span>
-              <span className="cursor-help underline decoration-dotted underline-offset-2" title="Próxima a baja: 60 a 89 días. Cumple política: 90 días o más.">Política</span>
-              <span>Resp.</span>
+              <span>Cuenta desde</span><span>Días</span><span>Resp.</span>
             </div>
             {!filas ? <SinDatos fallo={fallo} onReintentar={onReintentar} />
               : !paraBaja.length ? <p className="border-t border-[#2C2D29] px-3.5 py-3 text-sm text-[#B5B5AE]">Ninguna orden llega a 60 días.</p>
@@ -239,15 +236,15 @@ export function ListaOrdenes({ filas, fallo, onReintentar, responsables, yo, fil
                   const rojo = b.nivel === "cumple";
                   return (
                     <Link key={f.ordenId} href={`/tecnicos/ordenes/${encodeURIComponent(f.ordenId)}`}
-                      className={`${FILA} ${ESTILO_FILA.baja} h-[38px] min-w-[900px] grid-cols-[84px_minmax(0,1.1fr)_minmax(0,1.3fr)_150px_130px_60px_minmax(0,1.2fr)_30px]`}>
+                      className={`${FILA} ${ESTILO_FILA.baja} h-[38px] min-w-[900px] grid-cols-[84px_minmax(0,1.1fr)_minmax(0,1.3fr)_150px_140px_130px_30px]`}>
                       <Codigo codigo={f.codigo} tipo="baja" />
                       <span className="truncate">{f.cliente || "—"}</span>
                       <span className="truncate">{f.equipo || "—"}</span>
                       <ChipEstado estado={f.estado} />
                       <span className="text-[#B5B5AE]">{b.desde === "ingreso" ? "Ingreso" : "Completada"} · {fechaCorta(b.fecha)}</span>
-                      <span className={`font-bold tabular-nums ${rojo ? "text-[#FF9C94]" : "text-[#FFB547]"}`}>{b.dias} d</span>
-                      <span className={`justify-self-start whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold ${rojo ? "bg-[rgba(255,122,112,.14)] text-[#FF9C94]" : "bg-[rgba(255,181,71,.13)] text-[#FFB547]"}`}>
-                        {rojo ? "Cumple política de baja" : `Próxima a baja · faltan ${b.faltan} d`}
+                      {/* R8c: el color dice la política (rojo = cumple; ámbar = próxima, con lo que falta). */}
+                      <span className={`whitespace-nowrap tabular-nums ${rojo ? "text-[#FF9C94]" : "text-[#FFB547]"}`}>
+                        <b className="font-bold">{b.dias} d</b>{!rojo && <span className="font-semibold"> · faltan {b.faltan}</span>}
                       </span>
                       <Iniciales id={f.responsableId} responsables={responsables} />
                     </Link>
