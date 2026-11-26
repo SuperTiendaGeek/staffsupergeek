@@ -16,6 +16,7 @@ import "server-only";
 // "Llegó" y "Entregada" no se guardan: se leen del artículo (Recibido /
 // Vendido), así nunca hay dos verdades.
 
+import { CAMPO_ES_PRUEBA, esPrueba } from "@/lib/pruebas/reglas";
 import { withLock } from "@/lib/concurrencia";
 import { canAccessApp, isAdministratorRole } from "@/lib/apps";
 import { airtableMutation, fetchRecordById, fetchRecordsByIds, firstNumber, linkedIds, tableUrl } from "@/lib/finanzas/airtable-client";
@@ -580,11 +581,11 @@ export async function filasBandeja(): Promise<FilaBandeja[]> {
   // Cuentas: por orden (orden + pedidos) o por pedido suelto.
   const ordenIds = [...new Set(visibles.map((s) => s.ordenId).filter((x): x is string => !!x))];
   const opIds = [...new Set(visibles.filter((s) => !s.ordenId && s.operacionId).map((s) => s.operacionId!))];
-  const ordenes = await porIds(T_ORDENES, ordenIds, ["ID", "ClienteTXT", "Equipo", ...CAMPOS_ORDEN_CUENTA]);
+  const ordenes = await porIds(T_ORDENES, ordenIds, ["ID", "ClienteTXT", "Equipo", CAMPO_ES_PRUEBA, ...CAMPOS_ORDEN_CUENTA]);
   const [cuentasOrden, cuentasOp, ops, proveedores] = await Promise.all([
     estadosDeCuentaDeOrdenes([...ordenes.values()]),
     estadosDeCuentaDeOperaciones(opIds),
-    porIds(T_OPERACIONES, opIds, ["Código Operación", "Cliente Nombre"]),
+    porIds(T_OPERACIONES, opIds, ["Código Operación", "Cliente Nombre", CAMPO_ES_PRUEBA]),
     porIds("Shipping Proveedores", [...new Set(visibles.map((s) => s.proveedorId).filter((x): x is string => !!x))], ["Nombre proveedor"]),
   ]);
 
@@ -598,8 +599,10 @@ export async function filasBandeja(): Promise<FilaBandeja[]> {
     const esOrden = k.startsWith("o:");
     const id = k.slice(2);
     const pagado = esOrden ? cuentasOrden.get(id)?.totalAbonado ?? 0 : cuentasOp.get(id)?.totalAbonado ?? 0;
-    const conChip = await conSituacion(lista, pagado);
     const reg = esOrden ? ordenes.get(id) : ops.get(id);
+    // Punto 16: lo de una orden o pedido de prueba nunca llega a Logística (no se compra de verdad).
+    if (esPrueba(reg?.fields)) continue;
+    const conChip = await conSituacion(lista, pagado);
     const codigo = esOrden ? texto(reg?.fields["ID"]) : texto(reg?.fields["Código Operación"]);
     const cliente = esOrden ? texto(reg?.fields["ClienteTXT"]) : texto(reg?.fields["Cliente Nombre"]);
     for (const s of conChip) {

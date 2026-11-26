@@ -3,6 +3,7 @@ import "server-only";
 // Orden cerrada y «Regresó el equipo» — lado servidor (rediseño R6).
 // Las reglas están en ./reglas.ts; aquí solo se lee y se escribe en Airtable.
 
+import { CAMPO_ES_PRUEBA, esPrueba } from "@/lib/pruebas/reglas";
 import { ErrorMotivo, camposDeMotivos } from "@/lib/tecnicos/motivos/servidor";
 import { withLock } from "@/lib/concurrencia";
 import { ids, porIds, texto } from "@/lib/estado-cuenta/airtable";
@@ -20,9 +21,11 @@ export class ErrorRegreso extends Error {
   constructor(message: string, readonly status = 400) { super(message); }
 }
 
-const CAMPOS = ["ID", "Estado Actual", "Cliente", "ClienteTXT", "Equipo", "Ficha del equipo", "Facturas Electrónicas", "Recibos"];
+const CAMPOS = ["ID", "Estado Actual", "Cliente", "ClienteTXT", "Equipo", "Ficha del equipo", "Facturas Electrónicas", "Recibos", CAMPO_ES_PRUEBA];
 
 export type OrdenBasica = {
+  /** Punto 16: el regreso de una orden de prueba también es de prueba. */
+  esPrueba?: boolean;
   id: string;
   codigo: string;
   estado: string;
@@ -46,6 +49,7 @@ export async function leerOrdenBasica(ordenId: string): Promise<OrdenBasica | nu
     equipo: texto(f["Equipo"]),
     fichaEquipoIds: ids(f["Ficha del equipo"]),
     documentoIds: [...ids(f["Facturas Electrónicas"]), ...ids(f["Recibos"])],
+    esPrueba: esPrueba(f),
   };
 }
 
@@ -118,7 +122,7 @@ export async function registrarRegreso(o: {
     const creada = await createOrdenReparacion({
       clienteId: orden.clienteId,
       orden: { equipo: orden.equipo || "Equipo", ingresaPor: r.motivo as string },
-      enlaces: { ordenAnteriorId: orden.id, tipoRegreso: tipo, fichaEquipoIds: orden.fichaEquipoIds, motivoIds },
+      enlaces: { ordenAnteriorId: orden.id, tipoRegreso: tipo, fichaEquipoIds: orden.fichaEquipoIds, motivoIds, ordenAnteriorEsPrueba: orden.esPrueba },
     });
 
     // Rediseño R5: si la orden vieja no tenía ficha, la nueva la saca del texto.

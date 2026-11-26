@@ -25,7 +25,8 @@ assert(/revisarRegreso\(/.test(regreso) && /createOrdenReparacion\(/.test(regres
 const pantalla = leer("app/tecnicos/ordenes/[id]/OrdenDetalleClient.tsx");
 // R1: la cabecera nueva calcula «cerrada» una vez y la usa para el selector y el menú ⋯.
 assert(/const cerrada = !!orden && esOrdenCerrada\(orden\.estadoActual\)/.test(pantalla) && /\{cerrada \? \(/.test(pantalla), "la pantalla esconde el selector de estado en una orden cerrada");
-assert(/cerrada && isAdministratorRole\(userRol\) && \(\s*<Desplegable[\s\S]{0,900}setReabrirAbierto\(true\)/.test(pantalla), "«Reabrir…» solo para administradores (menú ⋯ de la orden cerrada)");
+// Punto 16: el menú ⋯ ahora es de todo administrador (también «Marcar como prueba»); «Reabrir…» sigue solo con la orden cerrada.
+assert(/isAdministratorRole\(userRol\) && \(\s*<Desplegable[\s\S]{0,1600}\{cerrada && \(\s*<button[^\n]*setReabrirAbierto\(true\)/.test(pantalla), "«Reabrir…» solo para administradores (menú ⋯ de la orden cerrada)");
 
 if (fallos) { console.error(`\n${fallos} prueba(s) fallaron`); process.exit(1); }
 console.log("\nTodo bien.");

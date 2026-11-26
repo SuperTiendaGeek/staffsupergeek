@@ -6,6 +6,8 @@ import {
 } from "@/lib/shipping-v2/airtable";
 import { AIRTABLE_TABLES, loadAirtableEnv } from "@/lib/tecnicos/config/airtable";
 import { resolveModoRepuestos } from "@/lib/cuenta-unificada/config";
+import { MENSAJE_SIN_INVENTARIO, esPrueba } from "@/lib/pruebas/reglas";
+import { ErrorPrueba } from "@/lib/pruebas/servidor";
 
 type AirtableClient = { baseUrl: string; headers: HeadersInit };
 
@@ -20,7 +22,7 @@ function getClient(): AirtableClient {
 async function fetchOrdenModoYVisible(
   ordenRecordId: string,
   client: AirtableClient
-): Promise<{ idVisible: string; modo: "legacy" | "v2" } | null> {
+): Promise<{ idVisible: string; modo: "legacy" | "v2"; esPrueba: boolean } | null> {
   const res = await fetch(
     `${client.baseUrl}/${encodeURIComponent(AIRTABLE_TABLES.ordenes)}/${encodeURIComponent(ordenRecordId)}`,
     { headers: client.headers, cache: "no-store" }
@@ -28,7 +30,7 @@ async function fetchOrdenModoYVisible(
   if (!res.ok) return null;
   const data = (await res.json()) as { id: string; fields: Record<string, unknown> };
   const idVisible = typeof data.fields["ID"] === "string" ? (data.fields["ID"] as string) : data.id;
-  return { idVisible, modo: resolveModoRepuestos(data.fields["Modo repuestos"]) };
+  return { idVisible, modo: resolveModoRepuestos(data.fields["Modo repuestos"]), esPrueba: esPrueba(data.fields) };
 }
 
 export async function buscarRepuestosStockDisponibles(
@@ -52,6 +54,8 @@ export async function agregarRepuestoStockAOrden({
   const client = getClient();
   const orden = await fetchOrdenModoYVisible(ordenRecordId, client);
   if (!orden) throw new Error("Orden no encontrada.");
+  // Punto 16: una orden de prueba no aparta inventario real.
+  if (orden.esPrueba) throw new ErrorPrueba(MENSAJE_SIN_INVENTARIO);
 
   // Antes aquí se rechazaba toda orden en modo "Legacy". Con el inventario
   // único, todo repuesto sale de Shipping Items y la vía anterior está

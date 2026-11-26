@@ -4,6 +4,8 @@ import { leerLinea } from "@/lib/tecnicos/presupuesto/airtable";
 import { aUnidadLicencia, cargarLicenciaEnLinea, reemplazarLicenciaEnLinea } from "@/lib/tecnicos/presupuesto/cargar";
 import { fetchAllProductosDigitales } from "@/lib/tecnicos/airtable";
 import { candidatasParaLinea } from "@/lib/productos-digitales/entrega";
+import { MENSAJE_SIN_INVENTARIO } from "@/lib/pruebas/reglas";
+import { exigirNoPrueba } from "@/lib/pruebas/servidor";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +48,8 @@ export async function POST(request: Request, { params }: Params) {
   if (!productoId) return NextResponse.json({ success: false, error: "Elige la licencia." }, { status: 400 });
   const usuario = { nombre: session.user.nombre || session.user.email || "Portal", id: session.user.userId ?? null };
   try {
+    // Punto 16: una orden de prueba no toma licencias reales.
+    await exigirNoPrueba({ tipo: "orden", id }, MENSAJE_SIN_INVENTARIO);
     if (body.accion === "reemplazar") {
       const r = await reemplazarLicenciaEnLinea({ ordenId: id, lineaId, nuevoProductoId: productoId, motivo: body.motivo ?? "", usuario });
       return NextResponse.json({ success: true, data: r });

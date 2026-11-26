@@ -180,6 +180,8 @@ export type ShippingItemResumen = {
 
 export type OperacionDetalle = {
   id: string;
+  /** Punto 16: pedido de prueba (etiqueta «PRUEBA»; fuera del tablero y de Por comprar). */
+  esPrueba?: boolean;
   codigo: string;
   /** Fecha de creación del registro (ISO 8601), ver `OperacionListado.fechaCreacion`. */
   fechaCreacion: string;

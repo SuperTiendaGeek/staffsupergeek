@@ -37,6 +37,7 @@ import {
   type EventoHistorial,
   type ResumenCliente,
 } from "./historial";
+import { CAMPO_ES_PRUEBA, esPrueba } from "@/lib/pruebas/reglas";
 
 export type HistorialCliente = {
   saldo: Pick<SaldoCliente, "disponible" | "proximoVence">;
@@ -61,8 +62,8 @@ export async function historialDeCliente(clienteId: string): Promise<HistorialCl
   const f = cliente.fields;
 
   const [ordenesMap, operacionesMap, reservas, facturas, notas, recibos, proformas, movimientosSaldo] = await Promise.all([
-    porIds("Órdenes de Reparación", linkedIds(f["Órdenes Relacionadas"]), ["ID", "Fecha de Ingreso", "Equipo", "Estado Actual", ...CAMPOS_ORDEN_CUENTA]),
-    porIds("Operación Comercial", linkedIds(f["Operaciones Comerciales"]), ["Código Operación", "Producto Solicitado", "Estado", "Orden de Reparación"]),
+    porIds("Órdenes de Reparación", linkedIds(f["Órdenes Relacionadas"]), ["ID", "Fecha de Ingreso", "Equipo", "Estado Actual", CAMPO_ES_PRUEBA, ...CAMPOS_ORDEN_CUENTA]),
+    porIds("Operación Comercial", linkedIds(f["Operaciones Comerciales"]), ["Código Operación", "Producto Solicitado", "Estado", "Orden de Reparación", CAMPO_ES_PRUEBA]),
     porIds("Reservas", linkedIds(f["Reservas"]), ["Número", "Fecha", "Estado", "Descripción Item", "Precio", "Total Abonado"]),
     porIds("Facturas Electrónicas", linkedIds(f["Facturas Electrónicas"]), ["Número de Factura", "Fecha de Emisión", "Total", "Estado", "Ambiente", "Estado Anulación"]),
     porIds("Notas de Crédito Electrónicas", linkedIds(f["Notas de Crédito Electrónicas"]), ["Número de Nota de Crédito", "Fecha de Emisión", "Total", "Estado", "Ambiente", "Destino", "Estado Crédito"]),
@@ -72,8 +73,11 @@ export async function historialDeCliente(clienteId: string): Promise<HistorialCl
   ]);
 
   // Cuentas: cada orden (con todos sus pedidos) y cada pedido suelto.
-  const ordenes = [...ordenesMap.values()];
-  const operaciones = [...operacionesMap.values()];
+  // Punto 16: en la ficha de un cliente real no salen sus órdenes ni pedidos de prueba
+  // (en la de PRUEBA INTERNA, sí: ahí se buscan).
+  const verPruebas = esPrueba(f);
+  const ordenes = [...ordenesMap.values()].filter((o) => verPruebas || !esPrueba(o.fields));
+  const operaciones = [...operacionesMap.values()].filter((op) => verPruebas || !esPrueba(op.fields));
   const sueltas = operaciones.filter((op) => ids(op.fields["Orden de Reparación"]).length === 0).map((op) => op.id);
   const [cuentasOrden, cuentasSueltas] = await Promise.all([
     estadosDeCuentaDeOrdenes(ordenes),

@@ -11,6 +11,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fechaCorta } from "@/lib/tecnicos/orden/etapas";
 import { filasAbiertas, filasParaBaja, nombreEstado, pasaFiltro, tipoFila, type Bandeja, type FilaTablero, type FiltroTarjeta } from "@/lib/tecnicos/orden/tablero";
 import { CHIP_ESTADO, CHIP_REPUESTOS, IconoEntregada, IconoReciclaje, Iniciales, PUNTO_NIVEL, TEXTO_NIVEL, type Responsables } from "./piezas";
+import { EtiquetaPrueba } from "@/components/pruebas/EtiquetaPrueba";
 
 type OrdenListado = {
   recordId: string;
@@ -22,6 +23,8 @@ type OrdenListado = {
   fechaEntrega?: string | null;
   estadoCambiadoEl?: string | null;
   responsableId?: string | null;
+  /** Punto 16: solo llega al buscar (las bandejas no traen pruebas). */
+  esPrueba?: boolean;
 };
 
 type Props = {
@@ -290,7 +293,7 @@ function TablaServidor({ tipo, datos, total = null, responsables, enBaja }: {
               <Link key={o.recordId} href={`/tecnicos/ordenes/${encodeURIComponent(o.recordId)}`}
                 className={`${FILA} ${ESTILO_FILA[t]} h-[38px] ${columnas}`}>
                 <Codigo codigo={o.idVisible} tipo={t} />
-                <span className="truncate">{o.clienteNombre || "—"}</span>
+                <span className="flex min-w-0 items-center gap-1.5"><span className="truncate">{o.clienteNombre || "—"}</span>{o.esPrueba && <EtiquetaPrueba />}</span>
                 <span className="truncate">{o.equipo || "—"}</span>
                 <span className="text-[#B5B5AE]">{fechaCorta(o.fechaIngreso)}</span>
                 {tipo === "busqueda" ? <ChipEstado estado={o.estadoActual} />

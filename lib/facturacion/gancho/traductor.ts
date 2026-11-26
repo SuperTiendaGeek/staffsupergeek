@@ -1,5 +1,6 @@
 import "server-only";
 
+import { bloqueaDocumento, esPrueba } from "@/lib/pruebas/reglas";
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
 import { esAbonoVigente } from "@/types/cuenta-unificada";
 import type { GetCuentaUnificadaInput } from "@/types/cuenta-unificada";
@@ -30,7 +31,7 @@ export type PreFacturaInput = { ordenId: string } | { operacionId: string };
 
 export type PreFacturaBloqueada = {
   bloqueado:        true;
-  motivo:           "FACTURA_EXISTENTE" | "RECIBO_EXISTENTE" | "ITEMS_NO_LISTOS" | "PRODUCTOS_DIGITALES_SIN_PRECIO" | "PRESUPUESTO_PENDIENTE" | "LINEA_NEGATIVA" | "SOLO_GARANTIA";
+  motivo:           "FACTURA_EXISTENTE" | "RECIBO_EXISTENTE" | "ITEMS_NO_LISTOS" | "PRODUCTOS_DIGITALES_SIN_PRECIO" | "PRESUPUESTO_PENDIENTE" | "LINEA_NEGATIVA" | "SOLO_GARANTIA" | "ES_PRUEBA";
   facturaExistente?: FacturaVinculadaGancho;
   // Bloqueo cruzado: el recibo interno cierra la cuenta igual que una
   // factura (descuenta inventario y registra el ingreso), así que uno
@@ -116,6 +117,13 @@ export async function construirPreFactura(input: PreFacturaInput): Promise<Resul
   ]);
   const registroOrigen = origen.tipo === "orden" ? ordenRecord : operacionRecord;
   const registroOtro   = origen.tipo === "orden" ? operacionRecord : ordenRecord;
+
+  // ── 2b. Punto 16: una orden o pedido de prueba no emite documentos en
+  // producción (una factura ahí es real ante el SRI). En local (ambiente de
+  // pruebas del SRI) sí se emite: nace «PRUEBAS» y no toca Finanzas.
+  if (bloqueaDocumento(esPrueba(registroOrigen?.fields) || esPrueba(registroOtro?.fields), process.env.SRI_AMBIENTE)) {
+    return { bloqueado: true, motivo: "ES_PRUEBA" };
+  }
 
   // ── 3. Precondición dura de items (Reservado, sin Factura previa) ───────────
   const detalleItems = await fetchDetalleItems(cuenta.items.map((i) => i.id));

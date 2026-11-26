@@ -41,6 +41,7 @@ import { OrdenEtapas } from "@/components/tecnicos/ordenes/OrdenEtapas";
 import { Desplegable, OPCION_MENU } from "@/components/tecnicos/ordenes/Desplegable";
 import { diasEnTaller, fechaCorta, pasosDeLaOrden, queSigue, type ResumenPresupuesto } from "@/lib/tecnicos/orden/etapas";
 import { avisoAbonoDeMas } from "@/lib/cobros/aviso-abono";
+import { EtiquetaPrueba } from "@/components/pruebas/EtiquetaPrueba";
 
 type HistorialItem = {
   id: string;
@@ -124,6 +125,8 @@ type ProductoDigitalItem = {
 };
 
 type OrdenDetalle = {
+  /** Punto 16: orden de prueba (etiqueta amarilla; ⋯ para marcar o desmarcar). */
+  esPrueba?: boolean;
   /** Rediseño R1: cuándo se avisó al cliente que retire y cuándo se le envió el presupuesto. */
   clienteAvisado?: string | null;
   presupuestoEnviado?: string | null;
@@ -1171,6 +1174,24 @@ export function OrdenDetalleClient() {
   const sigue = datosEtapas ? queSigue(datosEtapas, resumen) : { texto: "", accion: null };
   const dias = orden ? diasEnTaller(orden.fechaIngreso || null, orden.entrega?.fecha ?? null, new Date()) : 0;
 
+  // Punto 16: marcar o desmarcar la orden como prueba (solo administrador; queda en la Actividad).
+  const cambiarPrueba = async (valor: boolean) => {
+    if (!orden) return;
+    setEstadoError(null);
+    try {
+      const res = await fetch(`/api/tecnicos/ordenes/${encodeURIComponent(orden.recordId)}/prueba`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ esPrueba: valor }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!res.ok || !json.success) throw new Error(json.error || "No se pudo guardar la marca.");
+      setOrden((prev) => (prev ? { ...prev, esPrueba: valor } : prev));
+      setActividadVersion((v) => v + 1);
+      avisarCambioAlertas();
+    } catch (e) {
+      setEstadoError(e instanceof Error ? e.message : "No se pudo guardar la marca.");
+    }
+  };
+
   return (
     <div className={`${styles.theme} w-full space-y-2.5`}>
         {loading && <div className="text-sm text-[var(--sg-text-secondary)]">Cargando orden...</div>}
@@ -1188,6 +1209,7 @@ export function OrdenDetalleClient() {
               <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2">
                 <Link href="/tecnicos/ordenes" className="text-xs text-[var(--sg-text-muted)] transition hover:text-[var(--sg-lime)]">‹ Órdenes</Link>
                 <h1 className="font-mono text-[22px] font-extrabold leading-none tracking-wide text-[var(--sg-lime)]">{orden.idVisible}</h1>
+                {orden.esPrueba && <EtiquetaPrueba />}
                 {cerrada ? (
                   <span className="inline-flex h-[26px] items-center gap-1.5 rounded-full bg-[rgba(86,227,164,.13)] px-2.5 text-[11px] font-bold text-[#56E3A4]">
                     <svg width="11" height="11" viewBox="0 0 14 14" aria-hidden="true"><rect x="3" y="6" width="8" height="6" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.4"/><path d="M4.8 6V4.5a2.2 2.2 0 0 1 4.4 0V6" fill="none" stroke="currentColor" strokeWidth="1.4"/></svg>
@@ -1280,14 +1302,21 @@ export function OrdenDetalleClient() {
                     </>
                   )}
                 </Desplegable>
-                {cerrada && isAdministratorRole(userRol) && (
-                  <Desplegable derecha ancho={200} boton={({ ref, abierto, alternar }) => (
+                {isAdministratorRole(userRol) && (
+                  <Desplegable derecha ancho={210} boton={({ ref, abierto, alternar }) => (
                     <button ref={ref} type="button" onClick={alternar} aria-haspopup="menu" aria-expanded={abierto}
-                      aria-label="Más: reabrir (solo administrador, con motivo)" title="Reabrir (solo administrador, con motivo)"
+                      aria-label="Más (solo administrador)" title="Más (solo administrador)"
                       className={`${BTN_SECUNDARIO} w-[30px] !px-0`}>⋯</button>
                   )}>
                     {(cerrar) => (
-                      <button type="button" role="menuitem" onClick={() => { cerrar(); setReabrirAbierto(true); }} className={`${OPCION_MENU} text-[#FF9C94]`}>Reabrir la orden…</button>
+                      <>
+                        <button type="button" role="menuitem" onClick={() => { cerrar(); void cambiarPrueba(!orden.esPrueba); }} className={OPCION_MENU}>
+                          {orden.esPrueba ? "Quitar la marca de prueba" : "Marcar como prueba"}
+                        </button>
+                        {cerrada && (
+                          <button type="button" role="menuitem" onClick={() => { cerrar(); setReabrirAbierto(true); }} className={`${OPCION_MENU} text-[#FF9C94]`}>Reabrir la orden…</button>
+                        )}
+                      </>
                     )}
                   </Desplegable>
                 )}

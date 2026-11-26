@@ -132,6 +132,8 @@ export function evaluarEntrega(input: {
   licencias?: ReadonlyArray<{ sku: string; tienePdf: boolean }>;
   /** Sin datos = solo se revisa (al abrir el panel). */
   datos?: DatosEntrega | null;
+  /** Punto 16: orden de prueba en producción: no se emite documento, se entrega sin él. */
+  sinDocumentoPorPrueba?: boolean;
 }): EvaluacionEntrega {
   const faltas: string[] = [];
   if (ESTADOS_SIN_ENTREGA.has(input.estadoOrden)) {
@@ -153,7 +155,9 @@ export function evaluarEntrega(input: {
       ? { clave: "cobro", ok: false, texto: `Sobran ${dinero(saldo)}: pásalo a saldo a favor o devuélvelo` }
       : { clave: "cobro", ok: true, texto: comprobante === "venta" ? "Cuenta pagada" : "Sin nada que cobrar" });
 
-  if (comprobante === "venta") {
+  if (comprobante === "venta" && !input.documento && input.sinDocumentoPorPrueba) {
+    revisiones.push({ clave: "documento", ok: true, texto: "Prueba: se entrega sin documento" });
+  } else if (comprobante === "venta") {
     revisiones.push(input.documento
       ? { clave: "documento", ok: true, texto: `${input.documento.tipo === "factura" ? "Factura" : "Recibo"} ${input.documento.numero}` }
       : { clave: "documento", ok: false, texto: "Falta emitir la factura o el recibo" });

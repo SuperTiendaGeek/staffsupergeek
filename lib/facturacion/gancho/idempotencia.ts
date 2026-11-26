@@ -7,6 +7,7 @@ import {
 import type { FacturaVinculadaGancho, ReciboVinculadoGancho } from "./airtableGancho";
 import type { OrigenGancho } from "../emitirFactura";
 import { armarRegistrosDeLaCuenta } from "@/lib/operaciones/cierre";
+import { facturaBloqueaEnAmbiente } from "@/lib/pruebas/reglas";
 
 // BORRADOR y ANULADA no bloquean: un borrador se puede seguir editando, y
 // una factura anulada no representa una emisión vigente sobre el origen.
@@ -53,7 +54,9 @@ export async function buscarFacturaBloqueante(
   if (facturaIds.length === 0) return null;
 
   const facturas = await fetchFacturasVinculadas(facturaIds);
-  return facturas.find((f) => !ESTADOS_NO_BLOQUEANTES.has(f.estado)) ?? null;
+  // Punto 16: en producción, una factura del ambiente de PRUEBAS no cierra una cuenta real.
+  const ambiente = (process.env.SRI_AMBIENTE ?? "1").trim();
+  return facturas.find((f) => !ESTADOS_NO_BLOQUEANTES.has(f.estado) && facturaBloqueaEnAmbiente(f.ambiente, ambiente)) ?? null;
 }
 
 /**
