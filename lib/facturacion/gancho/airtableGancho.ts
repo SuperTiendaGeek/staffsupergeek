@@ -257,6 +257,8 @@ export type FacturaVinculadaGancho = {
   numeroFactura: string;
   estado: string;
   claveAcceso: string;
+  /** "PRUEBAS" o "PRODUCCIÓN" (punto 16). */
+  ambiente?: string;
 };
 
 export async function fetchFacturasVinculadas(facturaIds: string[]): Promise<FacturaVinculadaGancho[]> {
@@ -266,6 +268,7 @@ export async function fetchFacturasVinculadas(facturaIds: string[]): Promise<Fac
     numeroFactura: firstString(r.fields["Número de Factura"]),
     estado:        firstString(r.fields["Estado"]),
     claveAcceso:   firstString(r.fields["Clave de Acceso"]),
+    ambiente:      firstString(r.fields["Ambiente"]),
   }));
 }
 

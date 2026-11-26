@@ -17,6 +17,7 @@ import { CotizacionPedido } from "./CotizacionPedido";
 import { esPedidoEspecial, estadoComercial } from "@/lib/pedidos-especiales/reglas";
 import { EntregarPedidoPanel } from "./EntregarPedidoPanel";
 import { RetiroPedido } from "./RetiroPedido";
+import { EtiquetaPrueba } from "@/components/pruebas/EtiquetaPrueba";
 import {
   construirMensajeOpcionCotizada,
   construirMensajeOpcionesCotizadas,
@@ -751,6 +752,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, documento =
             <ArrowLeft size={13} /> Pedidos
           </Link>
           <h2 className="font-mono text-base font-bold text-[#F0F0EC]">{operacion.codigo}</h2>
+          {operacion.esPrueba && <EtiquetaPrueba />}
           <span className="rounded-full border px-2 py-0.5 text-[10px] font-semibold" style={{ borderColor: `${estadoColor}44`, background: `${estadoColor}11`, color: estadoColor }}>{ec}</span>
           <span className="min-w-0 truncate text-sm text-[#A0A09A]">{operacion.productoSolicitado}</span>
           {ec === "Aceptado" && (
@@ -851,6 +853,7 @@ export function OperacionDetalleClient({ operacion, cuentaUnificada, documento =
       <div className="rounded-xl border border-[#3A3A36] bg-[#1E1F1C] p-4 sm:p-5">
         <div className="flex flex-wrap items-start gap-2 mb-3">
           <span className="font-mono text-sm font-bold text-[#F0F0EC]">{operacion.codigo}</span>
+          {operacion.esPrueba && <EtiquetaPrueba />}
           {operacion.categoria && (
             <span className="rounded-full bg-[#3A3A36]/60 px-2 py-0.5 text-[10px] text-[#8A8A80]">
               {operacion.categoria}

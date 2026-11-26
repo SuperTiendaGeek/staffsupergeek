@@ -32,6 +32,7 @@ import {
   texto,
   type Registro,
 } from "@/lib/estado-cuenta/airtable";
+import { facturaCuentaComoDocumento, sinPruebas } from "@/lib/pruebas/reglas";
 
 const T_ORDENES     = "Órdenes de Reparación";
 const T_FACTURAS    = "Facturas Electrónicas";
@@ -49,11 +50,12 @@ export async function cargarOrdenesCobro(filtro: FiltroCobros = {}): Promise<Ord
   const desde = fechaSegura(filtro.desde);
   const ordenId = filtro.ordenId && /^rec[A-Za-z0-9]{14}$/.test(filtro.ordenId) ? filtro.ordenId : null;
 
+  // Punto 16: el panel no cuenta órdenes de prueba (una sola orden pedida por id sí se lee).
   const formula = ordenId
     ? `RECORD_ID()='${ordenId}'`
-    : desde
+    : sinPruebas(desde
     ? `IS_AFTER({Fecha de Ingreso}, DATEADD(DATETIME_PARSE('${desde}','YYYY-MM-DD'), -1, 'days'))`
-    : undefined;
+    : null);
 
   const ordenes = await listarTodo(T_ORDENES, [
     "ID", "ClienteTXT", "Equipo", "Estado Actual", "Fecha de Ingreso",
@@ -66,13 +68,15 @@ export async function cargarOrdenesCobro(filtro: FiltroCobros = {}): Promise<Ord
   // cliente y no ve los pedidos aprobados sin artículo.
   const [cuentas, facturas, recibos, lineasPresupuesto] = await Promise.all([
     estadosDeCuentaDeOrdenes(ordenes),
-    porIds(T_FACTURAS, ordenes.flatMap((o) => ids(o.fields["Facturas Electrónicas"])), ["Número de Factura", "Estado"]),
+    porIds(T_FACTURAS, ordenes.flatMap((o) => ids(o.fields["Facturas Electrónicas"])), ["Número de Factura", "Estado", "Ambiente"]),
     porIds(T_RECIBOS, ordenes.flatMap((o) => ids(o.fields["Recibos"])), ["Número", "Estado"]),
     porIds(T_PRESUPUESTO, ordenes.flatMap((o) => ids(o.fields[T_PRESUPUESTO])), ["Estado"]),
   ]);
 
   const docFactura = (id: string): DocumentoOrigen | null => {
     const r = facturas.get(id);
+    // Punto 16: una factura del ambiente de PRUEBAS no es el documento de una cuenta real (caso OR000342).
+    if (r && !facturaCuentaComoDocumento(r.fields["Ambiente"])) return null;
     return r ? { tipo: "factura", recordId: id, numero: texto(r.fields["Número de Factura"]), estado: texto(r.fields["Estado"]) } : null;
   };
   const docRecibo = (id: string): DocumentoOrigen | null => {

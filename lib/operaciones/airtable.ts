@@ -18,6 +18,9 @@ import { normalizeCedula } from "@/lib/clientes/normalizeCedula";
 import { calcularTotalCotizado } from "@/lib/operaciones/cobro";
 import { cantidadDeOpcion, precioUnitarioDeOpcion, resolverPreciosOpcion, validarCantidadOpcion, validarOpcion } from "@/lib/operaciones/opciones";
 import { elegirSiguienteIdAbono } from "@/lib/operaciones/id-abono";
+import { CAMPO_ES_PRUEBA, esPrueba } from "@/lib/pruebas/reglas";
+
+const CLIENTES_TABLE_PRUEBA = "Clientes";
 
 type AirtableRecord = {
   id: string;
@@ -68,6 +71,8 @@ const LIST_FIELDS = [
   "Cotización vence",
   // Punto 10C-3b: recargo por no retiro del pedido especial.
   "Recargo por no retiro",
+  // Punto 16: los pedidos de prueba no salen en el tablero.
+  CAMPO_ES_PRUEBA,
 ];
 
 function getClient(): AirtableClient {
@@ -223,6 +228,7 @@ export async function fetchOperaciones(opciones: { conCuenta?: boolean } = {}): 
   );
 
   const listado = records
+    .filter((r) => !esPrueba(r.fields))
     .sort((a, b) => (b.createdTime ?? "").localeCompare(a.createdTime ?? ""))
     .map((r) => mapOperacion(r, preciosPorOpcionId));
   if (!opciones.conCuenta) return listado;
@@ -441,6 +447,7 @@ export async function fetchOperacionDetalle(id: string): Promise<OperacionDetall
 
   return {
     id: opRecord.id,
+    esPrueba: esPrueba(f),
     codigo: firstString(f["Código Operación"], opRecord.id),
     fechaCreacion: opRecord.createdTime ?? "",
     ultimaActualizacion: firstString(f["Última Actualización"]) || opRecord.createdTime || "",
@@ -774,6 +781,17 @@ export async function fetchCategorias(): Promise<string[]> {
 
 // ── Crear / editar operación ──────────────────────────────────────────────────
 
+async function clienteEsDePruebaOp(client: AirtableClient, clienteId: string): Promise<boolean> {
+  if (!/^rec[A-Za-z0-9]{14}$/.test(clienteId ?? "")) return false;
+  try {
+    const res = await fetch(`${client.baseUrl}/${encodeURIComponent(CLIENTES_TABLE_PRUEBA)}/${encodeURIComponent(clienteId)}`, { headers: client.headers, cache: "no-store" });
+    if (!res.ok) return false;
+    return esPrueba(((await res.json()) as AirtableRecord).fields);
+  } catch {
+    return false;
+  }
+}
+
 export async function crearOperacion(input: CrearOperacionInput): Promise<{ id: string }> {
   const client = getClient();
 
@@ -784,6 +802,8 @@ export async function crearOperacion(input: CrearOperacionInput): Promise<{ id: 
     // motor del Presupuesto). Estado comercial inicial: "Cotizando".
     "Estado": "Cotizando",
   };
+  // Punto 16: el pedido de un cliente de prueba (PRUEBA INTERNA) nace marcado.
+  if (await clienteEsDePruebaOp(client, input.clienteId)) fields[CAMPO_ES_PRUEBA] = true;
 
   if (input.categoria?.trim()) fields["Categoría"] = input.categoria.trim();
   if (input.descripcionRequerimiento?.trim()) fields["Descripción del Requerimiento"] = input.descripcionRequerimiento.trim();

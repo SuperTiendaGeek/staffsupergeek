@@ -20,6 +20,7 @@ import {
 import { etiquetaAirtable, codigoDesdeAirtable } from "@/lib/facturacion/reglas/identificacion";
 import { credencialesDelTipo, nombreLimpio } from "@/lib/productos-digitales/reglas";
 import { esPagoEnLinea } from "@/lib/cobros/anular";
+import { CAMPO_ES_PRUEBA, FORMULA_SIN_PRUEBAS, esPrueba, heredaPrueba } from "@/lib/pruebas/reglas";
 
 // Attachment mínimo (id + url) usado para adjuntos simples de un campo.
 export interface AirtableSimpleAttachment {
@@ -50,6 +51,8 @@ export interface OrdenListado {
   fechaEntrega?: string | null;
   estadoCambiadoEl?: string | null;
   responsableId?: string | null;
+  /** Punto 16: orden de prueba (solo aparece al buscar, con su etiqueta). */
+  esPrueba?: boolean;
 }
 
 export interface OrdenesPageResult {
@@ -193,6 +196,8 @@ export interface NuevaOrdenInput {
     fichaEquipoIds?: string[];
     /** Rediseño R7: chips del motivo de ingreso. */
     motivoIds?: string[];
+    /** Punto 16: el regreso de una orden de prueba también nace de prueba. */
+    ordenAnteriorEsPrueba?: boolean;
   } | null;
 }
 
@@ -296,6 +301,8 @@ export interface ProductoDigital {
 
 export interface OrdenDetalle {
   recordId: string;
+  /** Punto 16: orden de prueba (etiqueta «PRUEBA» en la cabecera). */
+  esPrueba?: boolean;
   /** Entregar al cliente (auditoría ops, punto 6). null = todavía no se entrega por el paso nuevo. */
   entrega?: { fecha: string; retiradoPor: string; motivoSinCobro: string } | null;
   idVisible: string;
@@ -662,6 +669,9 @@ const buildOrdenesFilterFormula = ({
     "Telefono",
   ]);
   if (searchFormula) clauses.push(searchFormula);
+  // Punto 16: las órdenes de prueba no cuentan en bandejas ni conteos; el
+  // buscador sí las encuentra (salen con la etiqueta «PRUEBA»).
+  else clauses.push(FORMULA_SIN_PRUEBAS);
 
   const normalizedEstado = (estado ?? "").trim();
   if (normalizedEstado && normalizedEstado.toLowerCase() !== "todos") {
@@ -866,6 +876,7 @@ const mapOrdenListadoRecord = (record: {
     fechaEntrega: typeof f["Fecha de entrega"] === "string" ? (f["Fecha de entrega"] as string) : null,
     estadoCambiadoEl: typeof f["Estado cambiado el"] === "string" ? (f["Estado cambiado el"] as string) : null,
     responsableId: Array.isArray(f["Responsable"]) && typeof f["Responsable"][0] === "string" ? (f["Responsable"][0] as string) : null,
+    esPrueba: esPrueba(f),
   };
 };
 
@@ -1045,6 +1056,7 @@ export const fetchOrdenesPage = async ({
     "Fecha de entrega",
     "Estado cambiado el",
     "Responsable",
+    CAMPO_ES_PRUEBA,
   ].forEach(
     (field) => url.searchParams.append("fields[]", field)
   );
@@ -1536,6 +1548,17 @@ export const deleteClienteById = async (
   return { deleted: true };
 };
 
+/** Punto 16: ¿el cliente está marcado «Es prueba»? Si no se puede leer, no (la orden se crea igual). */
+const clienteEsDePrueba = async (clienteRecordId: string): Promise<boolean> => {
+  try {
+    const r = await fetchRecordById(AIRTABLE_TABLES.clientes, clienteRecordId);
+    return esPrueba(r.fields);
+  } catch (e) {
+    console.warn("[ordenes] no se pudo leer si el cliente es de prueba:", e);
+    return false;
+  }
+};
+
 export const createOrdenReparacion = async ({
   clienteId,
   nuevoCliente,
@@ -1552,12 +1575,16 @@ export const createOrdenReparacion = async ({
   }
 
   let clienteRecordId = clienteId?.trim() || "";
+  // Punto 16: la orden de un cliente de prueba (PRUEBA INTERNA) nace marcada.
+  let clienteDePrueba = false;
   if (!clienteRecordId) {
     if (!nuevoCliente?.nombre?.trim()) {
       throw new Error("Selecciona un cliente o registra uno nuevo");
     }
     const createdCliente = await createCliente(nuevoCliente);
     clienteRecordId = createdCliente.id;
+  } else {
+    clienteDePrueba = await clienteEsDePrueba(clienteRecordId);
   }
 
   const client = getClient();
@@ -1587,6 +1614,7 @@ export const createOrdenReparacion = async ({
   if (enlaces?.tipoRegreso) fields["Tipo de regreso"] = enlaces.tipoRegreso;
   if (enlaces?.fichaEquipoIds?.length) fields["Ficha del equipo"] = enlaces.fichaEquipoIds;
   if (enlaces?.motivoIds?.length) fields["Motivos"] = enlaces.motivoIds;
+  if (heredaPrueba(clienteDePrueba, enlaces?.ordenAnteriorEsPrueba)) fields[CAMPO_ES_PRUEBA] = true;
 
   const createdOrden = await createRecord(AIRTABLE_TABLES.ordenes, fields, client);
   return {
@@ -1697,6 +1725,7 @@ export const fetchOrdenById = async (recordId: string): Promise<OrdenDetalle | n
         }
       : null,
     regreso: leerRegreso(f),
+    esPrueba: esPrueba(f),
     clienteAvisado: typeof f["Cliente avisado"] === "string" ? (f["Cliente avisado"] as string) : null,
     presupuestoEnviado: typeof f["Presupuesto enviado"] === "string" ? (f["Presupuesto enviado"] as string) : null,
     completadaEl: typeof f["Completada el"] === "string" ? (f["Completada el"] as string) : null,

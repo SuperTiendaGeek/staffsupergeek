@@ -101,8 +101,10 @@ export async function POST(request: NextRequest, { params }: RouteContext) {
       registradoPor,
       numeroTransaccion,
       observacion,
+      excluirPrueba: true,
     });
-    if (!puente.ok) warning = "No se pudo registrar el movimiento financiero de este abono.";
+    // Punto 16: en un pedido de prueba el abono no va a Finanzas a propósito (no es un error).
+    if (!puente.ok && !puente.prueba) warning = "No se pudo registrar el movimiento financiero de este abono.";
 
     // Punto 10A-3: si el cliente ya eligió su opción en el enlace y este pago
     // cubre lo que pide la regla de tramos, el pedido especial pasa a

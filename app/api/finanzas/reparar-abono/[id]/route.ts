@@ -46,10 +46,11 @@ export async function POST(_request: Request, { params }: Params) {
     registradoPor,
     numeroTransaccion,
     observacion,
+    excluirPrueba: true,
   });
 
   if (!resultado.ok) {
-    return NextResponse.json({ success: false, error: resultado.error }, { status: 500 });
+    return NextResponse.json({ success: false, error: resultado.error }, { status: resultado.prueba ? 409 : 500 });
   }
   return NextResponse.json({ success: true, movimientoId: resultado.movimientoId });
 }

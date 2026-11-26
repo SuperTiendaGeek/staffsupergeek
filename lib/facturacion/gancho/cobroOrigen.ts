@@ -13,6 +13,7 @@ import "server-only";
 //   5. Las formas de pago del documento = abonos (del servidor) + cobros de
 //      la venta adicional.
 
+import { MENSAJE_SIN_DOCUMENTO } from "@/lib/pruebas/reglas";
 import type { Pago } from "../types/factura";
 import type { OrigenGancho } from "../emitirFactura";
 import { construirPreFactura, type PreFacturaBloqueada, type PreFacturaLista } from "./traductor";
@@ -52,6 +53,8 @@ export function mensajePrefacturaBloqueada(b: PreFacturaBloqueada): string {
       return `Hay productos digitales sin nombre o sin precio: ${(b.productosDigitalesNoListos ?? []).map((i) => i.nombre).join(", ")}.`;
     case "SOLO_GARANTIA":
       return "Esta cuenta solo tiene garantía SUPER GEEK ($0): se entrega sin factura ni recibo.";
+    case "ES_PRUEBA":
+      return MENSAJE_SIN_DOCUMENTO;
     case "LINEA_NEGATIVA":
       return `La cuenta tiene cargos negativos (descuentos o ajustes): ${(b.lineasNegativas ?? []).map((l) => l.descripcion).join(", ")}. Todavía no se pueden llevar a un documento.`;
   }

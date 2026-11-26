@@ -14,6 +14,7 @@ import "server-only";
 //      Nada de esto se asienta en Finanzas: el dinero ya entró.
 // Al final se verifica que lo pagado en las dos cuentas sume lo de antes.
 
+import { CAMPO_ES_PRUEBA, esPrueba } from "@/lib/pruebas/reglas";
 import { withLock } from "@/lib/concurrencia";
 import { airtableMutation, fetchRecordById, linkedIds, tableUrl } from "@/lib/finanzas/airtable-client";
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
@@ -116,6 +117,8 @@ async function crearPedido(l: Lectura, usuario: string): Promise<{ id: string; c
           "Aceptado por": usuario,
           "Aceptado vía": "En tienda",
           "Observación Interna": entradaHistorial(`Pedido aparte desde la orden ${l.ordenCodigo}.`, usuario),
+          // Punto 16: el pedido aparte de una orden de prueba también es de prueba.
+          ...(esPrueba(l.orden.fields) ? { [CAMPO_ES_PRUEBA]: true } : {}),
         },
       }],
       typecast: true,

@@ -19,6 +19,7 @@ import {
 import { ETIQUETA_BAJA, evaluarBaja } from "@/lib/tecnicos/orden/baja";
 import type { FilaTablero } from "@/lib/tecnicos/orden/tablero";
 import { compartirLectura } from "@/lib/compartir-lectura";
+import { sinPruebas } from "@/lib/pruebas/reglas";
 
 export const CLAVE_CONFIG = "alertas-ordenes";
 export const CAMPOS_ALERTA = {
@@ -71,7 +72,8 @@ const CAMPOS_ORDEN = [
   CAMPOS_ALERTA.responsable, CAMPOS_ALERTA.movimiento, CAMPOS_ALERTA.pospuesta, CAMPOS_ALERTA.avisado, CAMPOS_ALERTA.enviado,
   CAMPOS_ALERTA.completada, CAMPOS_ALERTA.estadoCambiado,
 ];
-const FORMULA_ABIERTAS = "AND({Estado Actual} != 'Finalizado Entregado', {Estado Actual} != 'Enviado a Reciclaje')";
+// Punto 16: las órdenes de prueba no entran al tablero, la Lista ni las alertas.
+const FORMULA_ABIERTAS = sinPruebas("AND({Estado Actual} != 'Finalizado Entregado', {Estado Actual} != 'Enviado a Reciclaje')");
 
 type Registro = { id: string; fields: Record<string, unknown>; createdTime?: string };
 

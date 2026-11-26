@@ -7,6 +7,8 @@ import "server-only";
 // Es el ÚNICO camino a "Finalizado Entregado" desde el portal: la ruta
 // /estado lo rechaza.
 
+import { bloqueaDocumento, esPrueba } from "@/lib/pruebas/reglas";
+import { ambienteSri } from "@/lib/pruebas/servidor";
 import { withLock } from "@/lib/concurrencia";
 import { getCuentaUnificada } from "@/lib/cuenta-unificada";
 import { buscarDocumentoBloqueante } from "@/lib/facturacion/gancho/idempotencia";
@@ -72,6 +74,7 @@ async function revisar(ordenId: string, datos: DatosEntrega | null): Promise<Rev
   const enGarantia = cuenta.items.filter((i) => i.garantia).length + cuenta.servicios.filter((s) => s.garantia).length;
   const ev = evaluarEntrega({
     estadoOrden, saldo: cuenta.saldo, totalCobrable: cuenta.totalCuenta, enGarantia, documento, pendientes, datos,
+    sinDocumentoPorPrueba: bloqueaDocumento(esPrueba(orden.fields), ambienteSri()),
     // Punto 5B: cada licencia entregada en la orden debe tener su PDF.
     licencias: digitales
       .filter((p) => p.estado !== "Anulado" && p.estado !== "Vencido")

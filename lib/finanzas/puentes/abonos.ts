@@ -1,5 +1,6 @@
 import "server-only";
 
+import { esPrueba } from "@/lib/pruebas/reglas";
 import type { CategoriaMovimiento, EstadoMovimiento, MetodoMovimiento } from "@/types/finanzas";
 import { definicionMetodo, esAbonoDeTraspaso } from "@/lib/cobros/metodos";
 import {
@@ -80,17 +81,22 @@ export function resolverMapeoMetodoPago(
   return { cuentaDestinoNombre: def.cuenta, estado: def.estado, metodo: def.metodoFinanzas as MetodoMovimiento };
 }
 
-export type ResultadoPuenteAbono = { ok: true; movimientoId: string } | { ok: false; error: string };
+export type ResultadoPuenteAbono =
+  | { ok: true; movimientoId: string }
+  // Punto 16: abono de una orden o pedido de prueba → a propósito no va a Finanzas.
+  | { ok: false; error: string; prueba?: true };
 
 async function resolverClienteYReferencia(operacionId: string | null, ordenId: string | null, reservaId: string | null) {
   let clienteId: string | null = null;
   let refOrden: string | null = null;
   let refOperacion: string | null = null;
   let refReserva: string | null = null;
+  let deUnaPrueba = false;
 
   if (ordenId) {
     const orden = await fetchRecordById(ORDEN_TABLE, ordenId);
     if (orden) {
+      deUnaPrueba = esPrueba(orden.fields);
       clienteId = firstLinkedId(orden.fields[ORDEN_FIELDS.cliente]);
       refOrden = firstString(orden.fields[ORDEN_FIELDS.codigo]) || ordenId;
     }
@@ -98,6 +104,7 @@ async function resolverClienteYReferencia(operacionId: string | null, ordenId: s
   if (operacionId) {
     const operacion = await fetchRecordById(OPERACION_TABLE, operacionId);
     if (operacion) {
+      deUnaPrueba = deUnaPrueba || esPrueba(operacion.fields);
       if (!clienteId) clienteId = firstLinkedId(operacion.fields[OPERACION_FIELDS.cliente]);
       refOperacion = firstString(operacion.fields[OPERACION_FIELDS.codigo]) || operacionId;
     }
@@ -116,7 +123,7 @@ async function resolverClienteYReferencia(operacionId: string | null, ordenId: s
   else if (refOperacion) referenciaOrigen = `Abono sobre Operación #${refOperacion}`;
   else if (refReserva) referenciaOrigen = `Abono sobre Reserva ${refReserva}`;
 
-  return { clienteId, referenciaOrigen };
+  return { clienteId, referenciaOrigen, deUnaPrueba };
 }
 
 /**
@@ -134,6 +141,12 @@ export async function crearMovimientoParaAbono(input: {
   comprobanteUrl?: string;
   numeroTransaccion?: string;
   observacion?: string;
+  /**
+   * Punto 16: los abonos que se registran A MANO en una orden o pedido de
+   * prueba no llegan a Finanzas (es dinero de mentira). Los pagos en línea no
+   * lo piden: si entró dinero real por PayPhone o DeUna, se asienta igual.
+   */
+  excluirPrueba?: boolean;
 }): Promise<ResultadoPuenteAbono> {
   // Auditoría ops, punto 13B: los abonos del saldo a favor (usarlo, pasarlo
   // o devolverlo) y cualquier abono negativo tienen su propio asiento, que
@@ -161,7 +174,10 @@ export async function crearMovimientoParaAbono(input: {
     const operacionId = firstLinkedId(abonoActual.fields[ABONOS_FIELDS.aplicadoAOperacion]);
     const ordenId = firstLinkedId(abonoActual.fields[ABONOS_FIELDS.aplicadoAOrden]);
     const reservaId = firstLinkedId(abonoActual.fields[ABONOS_FIELDS.aplicadoAReserva]);
-    const { clienteId, referenciaOrigen } = await resolverClienteYReferencia(operacionId, ordenId, reservaId);
+    const { clienteId, referenciaOrigen, deUnaPrueba } = await resolverClienteYReferencia(operacionId, ordenId, reservaId);
+    if (input.excluirPrueba && deUnaPrueba) {
+      return { ok: false, prueba: true, error: "Abono de una orden o pedido de prueba: no va a Finanzas." };
+    }
     const mapeo = resolverMapeoMetodoPago(input.metodoPago);
     const cuenta = mapeo ? await fetchCuentaPorNombre(mapeo.cuentaDestinoNombre) : null;
 

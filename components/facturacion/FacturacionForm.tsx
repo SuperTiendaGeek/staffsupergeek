@@ -1728,6 +1728,14 @@ function PreFacturaBloqueadaBanner({ resultado }: { resultado: Extract<Resultado
       </div>
     );
   }
+  if (resultado.motivo === "ES_PRUEBA") {
+    return (
+      <div className="rounded-xl border border-[#FFD36B]/40 bg-[#FFD36B]/10 p-6">
+        <p className="mb-1 text-lg font-bold text-[#FFD36B]">Prueba: sin documento</p>
+        <p className="text-sm text-[#A7A7A7]">En producción no se emiten facturas ni recibos de una orden o pedido de prueba. Usa la proforma.</p>
+      </div>
+    );
+  }
   if (resultado.motivo === "SOLO_GARANTIA") {
     return (
       <div className="rounded-xl border border-[#4FA3FF]/40 bg-[#4FA3FF]/10 p-6">

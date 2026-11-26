@@ -182,8 +182,10 @@ export async function POST(request: Request, { params }: Params) {
       registradoPor: registradoPor || "Portal",
       numeroTransaccion: numeroTransaccion ?? undefined,
       observacion: observacion ?? undefined,
+      excluirPrueba: true,
     });
-    if (!puente.ok) warning = warning ?? "No se pudo registrar el movimiento financiero de este abono.";
+    // Punto 16: en una orden de prueba el abono no va a Finanzas a propósito (no es un error).
+    if (!puente.ok && !puente.prueba) warning = warning ?? "No se pudo registrar el movimiento financiero de este abono.";
 
     return NextResponse.json(
       { success: true, data: result.abono, warning },
