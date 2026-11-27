@@ -5,6 +5,7 @@ import "server-only";
 // ./servidor.ts (mismo motor que el resto de los pagos en línea).
 
 import { isAdministratorRole } from "@/lib/apps";
+import { CAMPO_ES_PRUEBA, esPrueba } from "@/lib/pruebas/reglas";
 import { getSessionFromCookie } from "@/lib/session";
 import { buscarClientesOp } from "@/lib/operaciones/airtable";
 import {
@@ -21,7 +22,7 @@ import {
   actualizarIntento, deUnaPorAsignarRecientes, intentoDeAbono, intentosEntre, intentosPendientesDeBandeja, type IntentoRegistro,
 } from "./airtable";
 import {
-  cierre, cuentaDelResumen, puedeVerBandeja, diaEcuador, diasDelPeriodo, mejorSugerencia, rangoDias, resumenDelDia, sugerir,
+  cierre, cuentaDelResumen, mismoMundo, puedeVerBandeja, diaEcuador, diasDelPeriodo, mejorSugerencia, rangoDias, resumenDelDia, sugerir,
   type Candidato, type CandidatoSugerido, type CierrePasarela, type FilaPago, type MovimientoCierre, type Periodo, type ResumenBandeja,
 } from "./bandeja";
 import { identificacionCorta } from "./deuna-reglas";
@@ -119,7 +120,8 @@ export async function datosBandeja(input: { periodo?: Periodo; desde?: string; h
   const pendientes = await pendientesConSugerencia(pend, finanzas);
   const historial = hist.map((i) => fila(i, finanzas));
   const filasHoy = histHoy ? histHoy.map((i) => fila(i, finanzas)) : historial;
-  const encendidas = { DeUna: configPasarela("DeUna").activa, PayPhone: configPasarela("PayPhone").activa };
+  // La bandeja muestra lo REAL: QA aparece con la etiqueta PRUEBA y no suma en las tarjetas.
+  const encendidas = { DeUna: configPasarela("DeUna", "Producción").activa, PayPhone: configPasarela("PayPhone").activa };
   return { hoy, resumen: resumenDelDia(filasHoy, hoy, pendientes), pendientes, historial, desde: dias.desde, hasta: dias.hasta, encendidas };
 }
 
@@ -143,7 +145,7 @@ async function pendientesConSugerencia(intentos: IntentoRegistro[], finanzas: Ma
     if (i.estado === "Por asignar" && i.identificacion) {
       const ced = normalizeCedula(i.identificacion);
       if (!porCedula.has(ced)) porCedula.set(ced, await candidatosPorCedula(ced).catch(() => []));
-      sugerencia = mejorSugerencia({ monto: i.monto, identificacion: i.identificacion }, porCedula.get(ced) ?? []);
+      sugerencia = mejorSugerencia({ monto: i.monto, identificacion: i.identificacion }, (porCedula.get(ced) ?? []).filter((c) => mismoMundo(c, i.ambiente)));
     }
     out.push({ ...fila(i, finanzas), sugerencia });
   }
@@ -154,8 +156,8 @@ async function pendientesConSugerencia(intentos: IntentoRegistro[], finanzas: Ma
 
 const ORDEN_CERRADA = new Set(["Finalizado Entregado", "Enviado a Reciclaje"]);
 const PEDIDO_CERRADO = new Set(["Cancelado", "Entregado"]);
-const CAMPOS_ORDEN = ["ID", "Equipo", "Estado Actual", "ClienteTXT", "Cliente", ...CAMPOS_ORDEN_CUENTA];
-const CAMPOS_PEDIDO = ["Código Operación", "Producto Solicitado", "Estado", "Orden de Reparación", "Cliente Nombre", "Cliente Cédula"];
+const CAMPOS_ORDEN = ["ID", "Equipo", "Estado Actual", "ClienteTXT", "Cliente", CAMPO_ES_PRUEBA, ...CAMPOS_ORDEN_CUENTA];
+const CAMPOS_PEDIDO = ["Código Operación", "Producto Solicitado", "Estado", "Orden de Reparación", "Cliente Nombre", "Cliente Cédula", CAMPO_ES_PRUEBA];
 
 const primero = (v: unknown) => (Array.isArray(v) ? texto(v[0]) : texto(v));
 
@@ -170,6 +172,7 @@ async function candidatosDeOrdenes(ordenes: Registro[], cedulaPorCliente: Map<st
       origen: "Orden" as const, id: o.id, codigo: texto(o.fields["ID"]) || o.id,
       cliente: nombrePorCliente.get(clienteId) || primero(o.fields["ClienteTXT"]),
       detalle: texto(o.fields["Equipo"]), falta: c.porCobrar, cedula: cedulaPorCliente.get(clienteId) ?? "",
+      esPrueba: esPrueba(o.fields),
     }];
   });
 }
@@ -185,6 +188,7 @@ async function candidatosDePedidos(pedidos: Registro[]): Promise<Candidato[]> {
       origen: "Pedido" as const, id: p.id, codigo: texto(p.fields["Código Operación"]) || p.id,
       cliente: primero(p.fields["Cliente Nombre"]), detalle: texto(p.fields["Producto Solicitado"]),
       falta: c.porCobrar, cedula: primero(p.fields["Cliente Cédula"]),
+      esPrueba: esPrueba(p.fields),
     }];
   });
 }
@@ -213,7 +217,7 @@ async function candidatosPorCedula(cedulaNormalizada: string): Promise<Candidato
  * Buscar a qué cuenta asignar: "OR000552", "OP-2026-000151", un nombre o una
  * cédula. Si hay pago, se ordena por coincidencia (misma cédula, mismo monto).
  */
-export async function buscarCuentas(q: string, pago?: { monto: number; identificacion: string }): Promise<CandidatoSugerido[]> {
+export async function buscarCuentas(q: string, pago?: { monto: number; identificacion: string; ambiente: string }): Promise<CandidatoSugerido[]> {
   const t = q.trim();
   let candidatos: Candidato[] = [];
   if (/^OR\d{3,}$/i.test(t)) {
@@ -226,7 +230,9 @@ export async function buscarCuentas(q: string, pago?: { monto: number; identific
     const clientes = await buscarClientesOp(t);
     candidatos = await cuentasDeClientes(clientes.map((c) => c.id));
   }
-  return sugerir(pago ?? { monto: 0, identificacion: "" }, candidatos).slice(0, 12);
+  // D2: un pago de pruebas (QA) solo ve cuentas «Es prueba»; uno real, solo reales.
+  const ambiente = pago?.ambiente ?? "Producción";
+  return sugerir(pago ?? { monto: 0, identificacion: "" }, candidatos.filter((c) => mismoMundo(c, ambiente))).slice(0, 12);
 }
 
 // ─── 12b: "Registrar pago" con DeUna ────────────────────────────────────────

@@ -309,3 +309,12 @@ export async function deUnaPorAsignarRecientes(horas: number): Promise<IntentoRe
   const desde = new Date(Date.now() - horas * 3_600_000).toISOString();
   return listarTodo(`AND({${F.estado}}='Por asignar',{${F.pasarela}}='DeUna',IS_AFTER(CREATED_TIME(),'${desde}'))`, 50);
 }
+
+/** Revisión automática: aprobados sin aplicar o abiertos/vencidos con ID de los últimos 30 días. */
+export async function intentosPorConciliar(): Promise<IntentoRegistro[]> {
+  const desde = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  return listarTodo(
+    `AND(IS_AFTER(CREATED_TIME(),'${desde}'),OR({${F.estado}}='Aprobado',AND(OR({${F.estado}}='Abierto',{${F.estado}}='Vencido'),{${F.idTransaccion}}!='')))`,
+    500,
+  );
+}
