@@ -162,7 +162,14 @@ export type Candidato = {
   /** Lo que falta por cobrar en esa cuenta. */
   falta: number;
   cedula: string;
+  /** Cuenta «Es prueba»: solo recibe pagos de QA (y al revés). */
+  esPrueba?: boolean;
 };
+
+/** D2: un pago de pruebas (QA) solo se asigna a cuentas «Es prueba»; uno real, nunca. */
+export function mismoMundo(c: Pick<Candidato, "esPrueba">, ambientePago: string): boolean {
+  return !!c.esPrueba === (ambientePago === "Prueba");
+}
 
 export type CandidatoSugerido = Candidato & { mismaCedula: boolean; mismoMonto: boolean; puntaje: number };
 

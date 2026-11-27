@@ -11,6 +11,7 @@ import "server-only";
 //   - La vista pública no incluye proveedor, URL, costo, cédula ni teléfono.
 //   - Todo cambio pasa por el mismo turno por orden que usa el técnico.
 
+import { CAMPO_ES_PRUEBA, esPrueba } from "@/lib/pruebas/reglas";
 import { randomBytes } from "crypto";
 import { withLock } from "@/lib/concurrencia";
 import { canAccessApp, isAdministratorRole } from "@/lib/apps";
@@ -208,6 +209,8 @@ type CobroDeLaOrden = {
   cuenta: CuentaOrdenParaCobro;
   cuentaVisible: { total: number; pagado: number; falta: number; faltaRepuestos: number } | null;
   pagoEnLinea: PagoEnLineaVista;
+  /** Punto 16 / D2: orden «Es prueba» → DeUna solo en QA (nunca producción). */
+  esPrueba: boolean;
 };
 
 /**
@@ -216,7 +219,8 @@ type CobroDeLaOrden = {
  * bajo pedido); el monto a cobrar sale de aquí, nunca del navegador.
  */
 async function cobroDeLaOrden(o: OrdenEnlace): Promise<CobroDeLaOrden> {
-  const reg = (await porIds("Órdenes de Reparación", [o.id], [CAMPO_SOLICITUDES, ...CAMPOS_ORDEN_CUENTA])).get(o.id);
+  const reg = (await porIds("Órdenes de Reparación", [o.id], [CAMPO_SOLICITUDES, CAMPO_ES_PRUEBA, ...CAMPOS_ORDEN_CUENTA])).get(o.id);
+  const prueba = esPrueba(reg?.fields);
   const [cuentas, solicitudes, intentos] = await Promise.all([
     reg ? estadosDeCuentaDeOrdenes([reg]) : Promise.resolve(new Map()),
     reg ? solicitudesPorIds(linkedIds(reg.fields[CAMPO_SOLICITUDES])) : Promise.resolve([]),
@@ -229,7 +233,7 @@ async function cobroDeLaOrden(o: OrdenEnlace): Promise<CobroDeLaOrden> {
     porCobrar: c?.porCobrar ?? 0,
     faltaRepuestos: faltaParaRepuestos(solicitudes, pagado),
   };
-  const medios = mediosDisponibles(o.idVisible);
+  const medios = mediosDisponibles(o.idVisible, prueba);
   const disponible = medios.tarjeta || medios.deuna;
   const opciones = disponible ? opcionesDePagoOrden(cuenta) : [];
   const ultimo = pagoParaMostrar(intentos);
@@ -244,6 +248,7 @@ async function cobroDeLaOrden(o: OrdenEnlace): Promise<CobroDeLaOrden> {
       ? { total: c.totalCuenta, pagado, falta: cuenta.porCobrar, faltaRepuestos: Math.min(cuenta.faltaRepuestos, cuenta.porCobrar) }
       : null,
     pagoEnLinea: { disponible: disponible && opciones.length > 0 && !bloquear, opciones, ultimo, medios },
+    esPrueba: prueba,
   };
 }
 
@@ -261,7 +266,7 @@ export async function tokenDeLaOrden(ordenId: string): Promise<string> {
 /** Pagos en línea: la cuenta de la orden para abrir y aplicar un pago. */
 export async function cuentaParaCobroDeLaOrden(ordenId: string): Promise<Omit<CobroDeLaOrden, "cuentaVisible" | "pagoEnLinea">> {
   const c = await cobroDeLaOrden(await leerOrdenEnlace(ordenId));
-  return { codigo: c.codigo, clienteNombre: c.clienteNombre, equipo: c.equipo, cuenta: c.cuenta };
+  return { codigo: c.codigo, clienteNombre: c.clienteNombre, equipo: c.equipo, cuenta: c.cuenta, esPrueba: c.esPrueba };
 }
 
 /** Pagos en línea: avisa a técnicos y administradores (mismos destinatarios que la respuesta del cliente). */

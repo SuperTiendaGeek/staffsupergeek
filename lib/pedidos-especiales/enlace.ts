@@ -11,6 +11,7 @@ import "server-only";
 //     dinero ni acepta el pedido. El pedido se acepta solo con un pago
 //     registrado por la tienda (o PayPhone, verificado por el servidor).
 
+import { esPrueba } from "@/lib/pruebas/reglas";
 import { randomBytes } from "crypto";
 import { withLock } from "@/lib/concurrencia";
 import { airtableMutation, airtableRequest, escapeFormulaString, fetchRecordById, tableUrl, type AirtableListResponse } from "@/lib/finanzas/airtable-client";
@@ -105,6 +106,8 @@ type Contexto = {
   elecciones: EleccionCliente[];
   pagado: number;
   recargo: number;
+  /** Punto 16 / D2: pedido «Es prueba» → DeUna solo en QA (nunca producción). */
+  esPrueba: boolean;
 };
 
 async function leerContexto(pedidoId: string): Promise<Contexto> {
@@ -127,6 +130,7 @@ async function leerContexto(pedidoId: string): Promise<Contexto> {
     elecciones: respuestas.map((r) => leerEleccion(r.fecha, r.detalle)).filter((e): e is EleccionCliente => !!e),
     pagado: cuentas.get(pedidoId)?.totalAbonado ?? 0,
     recargo: typeof f[CAMPO_RECARGO] === "number" ? (f[CAMPO_RECARGO] as number) : 0,
+    esPrueba: esPrueba(f),
   };
 }
 
@@ -146,7 +150,7 @@ function vistaDe(c: Contexto): VistaPublicaPedido {
     lineas: c.lineas, elecciones: c.elecciones, pagado: c.pagado, recargo: c.recargo,
   });
   const producto = vista.elegido?.items[0]?.descripcion || vista.opciones[0]?.descripcion || c.producto;
-  const medios = mediosDisponibles(c.codigo);
+  const medios = mediosDisponibles(c.codigo, c.esPrueba);
   const disponible = medios.tarjeta || medios.deuna;
   const opciones = disponible ? opcionesDePago(vista) : [];
   return {
@@ -198,7 +202,7 @@ export async function pedidoIdDelToken(token: string): Promise<string | null> {
  * del navegador.
  */
 export async function cuentaParaCobroDelPedido(pedidoId: string): Promise<{
-  codigo: string; clienteNombre: string; producto: string; vista: VistaPublicaPedido; eleccion: string;
+  codigo: string; clienteNombre: string; producto: string; vista: VistaPublicaPedido; eleccion: string; esPrueba: boolean;
 }> {
   const c = await leerContexto(pedidoId);
   const vista = vistaDe(c);
@@ -208,6 +212,7 @@ export async function cuentaParaCobroDelPedido(pedidoId: string): Promise<{
     producto: vista.producto,
     vista,
     eleccion: huellaEleccion(eleccionVigente(c.elecciones, c.lineas)),
+    esPrueba: c.esPrueba,
   };
 }
 

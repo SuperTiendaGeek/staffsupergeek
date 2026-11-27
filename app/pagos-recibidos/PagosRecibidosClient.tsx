@@ -39,8 +39,14 @@ const chip = "inline-flex h-[22px] items-center gap-1 whitespace-nowrap rounded-
 const btn = "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border border-[#3A3A36] bg-[#252622] px-3 text-xs font-semibold text-[#F0F0EC] hover:border-[#6A6A62] disabled:opacity-50";
 const btnMain = "inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg bg-[#D7FF4F] px-3 text-xs font-bold text-[#151613] disabled:opacity-50";
 
-function Chip({ pasarela }: { pasarela: Pasarela }) {
-  return <span className={`${chip} ${COLOR_PASARELA[pasarela]}`}>{pasarela}</span>;
+function Chip({ pasarela, ambiente }: { pasarela: Pasarela; ambiente?: string }) {
+  return (
+    <span className="inline-flex flex-wrap gap-1">
+      <span className={`${chip} ${COLOR_PASARELA[pasarela]}`}>{pasarela}</span>
+      {/* D2: pagos de QA (cuentas «Es prueba»): nunca son dinero real. */}
+      {ambiente === "Prueba" && <span className={`${chip} bg-[#FF8A80]/[0.12] text-[#FF8A80]`}>PRUEBA</span>}
+    </span>
+  );
 }
 function ChipEstado({ f, hoy }: { f: FilaPago; hoy: string }) {
   const vencido = f.estado === "Abierto" && !!f.creado && Date.now() - Date.parse(f.creado) > 20 * 60_000;
@@ -212,7 +218,7 @@ function FilaBandeja({ f, hoy, admin, seleccionada, onAsignar, onListo }: {
   return (
     <div className={`grid grid-cols-[64px_92px_minmax(0,1fr)_auto] items-start gap-3 border-t border-[#2C2D29] px-3.5 py-3 first:border-t-0 max-md:grid-cols-[1fr] ${seleccionada ? "bg-[#D7FF4F]/[0.04]" : ""}`}>
       <div><div className="font-bold tabular-nums">{hora(f.pagadoEn || f.creado, hoy)}</div><div className="text-xs text-[#B5B5AE]">{fechaHoraEcuador(f.pagadoEn || f.creado).slice(0, 10) === hoy ? "hoy" : ""}</div></div>
-      <div className="flex flex-col gap-1"><Chip pasarela={f.pasarela} /><b className="text-base tabular-nums">{usd(f.monto)}</b></div>
+      <div className="flex flex-col gap-1"><Chip pasarela={f.pasarela} ambiente={f.ambiente} /><b className="text-base tabular-nums">{usd(f.monto)}</b></div>
       <div className="flex min-w-0 flex-col gap-1.5">
         <div>
           <b>{f.pagador || f.codigo}</b>{" "}
@@ -434,7 +440,7 @@ function FilaHistorial({ f, hoy, abierta, onToggle }: { f: FilaPago; hoy: string
       <tr onClick={onToggle} className="cursor-pointer hover:bg-[#252622]" aria-expanded={abierta}>
         <td className={td}>{hora(f.pagadoEn || f.creado, hoy)}</td>
         <td className={td}>{f.codigo}</td>
-        <td className={td}><Chip pasarela={f.pasarela} /></td>
+        <td className={td}><Chip pasarela={f.pasarela} ambiente={f.ambiente} /></td>
         <td className={td}>{f.pagador || "—"}</td>
         <td className={td}>{f.cuenta || "—"}</td>
         <td className={`${td} text-right`}>{usd(f.monto)}</td>

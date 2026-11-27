@@ -9,13 +9,13 @@ import "server-only";
 import type { ConfigPasarela } from "./config";
 import { cuerpoSolicitud, leerInfo, leerRespuestaSolicitud, type CobroDeUna, type InfoDeUna } from "./deuna-reglas";
 
-const BASE = "https://apis-merchant.pdn.deunalab.com/merchant/v1/payment";
-
 async function llamar(c: ConfigPasarela, ruta: "request" | "info", cuerpo: unknown): Promise<{ status: number; datos: unknown }> {
   const controlador = new AbortController();
   const corte = setTimeout(() => controlador.abort(), 15_000);
   try {
-    const res = await fetch(`${BASE}/${ruta}`, {
+    // Producción o QA según la configuración (nunca se mezclan: config.ts).
+    if (!/^https:\/\/apis-merchant\.(pdn|qa)\.deunalab\.com\//.test(`${c.base}/`)) throw new Error("Dirección de DeUna no válida.");
+    const res = await fetch(`${c.base}/${ruta}`, {
       method: "POST",
       headers: { "x-api-key": c.apiKey, "x-api-secret": c.apiSecret, "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify(cuerpo),
@@ -29,8 +29,8 @@ async function llamar(c: ConfigPasarela, ruta: "request" | "info", cuerpo: unkno
 }
 
 /** Pide un cobro dinámico (un solo uso) por el monto exacto. Lanza si DeUna no lo da. */
-export async function solicitarCobroDeUna(c: ConfigPasarela, intento: { codigo: string; monto: number; detalle: string }): Promise<CobroDeUna> {
-  const { status, datos } = await llamar(c, "request", cuerpoSolicitud({ pointOfSale: c.caja, monto: intento.monto, codigo: intento.codigo, detalle: intento.detalle }));
+export async function solicitarCobroDeUna(c: ConfigPasarela, intento: { codigo: string; monto: number; detalle: string; caja?: string }): Promise<CobroDeUna> {
+  const { status, datos } = await llamar(c, "request", cuerpoSolicitud({ pointOfSale: intento.caja || c.caja, monto: intento.monto, codigo: intento.codigo, detalle: intento.detalle }));
   const cobro = status >= 200 && status < 300 ? leerRespuestaSolicitud(datos) : null;
   // Solo el código HTTP en el error: la respuesta podría traer datos que no deben ir a los registros.
   if (!cobro) throw new Error(`DeUna no generó el cobro (HTTP ${status}).`);

@@ -47,14 +47,17 @@ import { hoyEcuador } from "@/lib/pedidos-especiales/retiro";
 import { listPortalUsers } from "@/lib/airtable";
 import { isAdministratorRole, isProviderRole, isTechnicianRole } from "@/lib/apps";
 import { crearNotificacion } from "@/lib/notificaciones/airtable";
-import { configPasarela, pasarelaDisponible, puedeConsultar } from "./config";
+import { ambienteDeUnaPara, configPasarela, pasarelaDisponible, puedeConsultar, type ConfigPasarela } from "./config";
 import { confirmarEnPayPhone, parametrosCajita, type ParametrosCajita } from "./payphone";
 import { consultarPagoDeUna, solicitarCobroDeUna } from "./deuna";
+import { claveReserva, registrarUnaVez } from "./una-vez";
+import { ordenarParaConciliar, porConciliar } from "./conciliacion-reglas";
+import { almacenBlob, huellaNumero } from "./una-vez-blob";
 import {
   MINUTOS_GRACIA_DEUNA, MINUTOS_VIGENCIA_DEUNA, evaluarInfo, problemasDeUna, nombrePropio, type AvisoDeUna, type InfoDeUna,
 } from "./deuna-reglas";
 import {
-  actualizarIntento, crearIntento, intentoPorCodigo, intentosDeLaOrden, intentosDelPedido, intentosPorTransaccion, type IntentoRegistro,
+  actualizarIntento, crearIntento, intentoPorCodigo, intentosDeLaOrden, intentosDelPedido, intentosPorConciliar, intentosPorTransaccion, type IntentoRegistro,
 } from "./airtable";
 import {
   CODIGO_PAGO_REGEX, decidirAplicacion, decidirAplicacionOrden, desgloseIva, estadoVisible, evaluarConfirmacion,
@@ -86,6 +89,8 @@ type CuentaCaja = {
   eleccion: string;
   monto(para: ParaPago): { ok: true; monto: number } | { ok: false; error: string };
   decidir(x: { para: ParaPago; monto: number; eleccionAlPagar: string }): DecisionAplicar;
+  /** Punto 16 / D2: cuenta «Es prueba» (DeUna solo en QA; un pago QA solo se aplica aquí). */
+  esPrueba: boolean;
 };
 
 async function cuentaCaja(d: Destino): Promise<CuentaCaja> {
@@ -98,6 +103,7 @@ async function cuentaCaja(d: Destino): Promise<CuentaCaja> {
       eleccion: c.eleccion,
       monto: (para) => montoACobrar(c.vista, para),
       decidir: (x) => decidirAplicacion({ para: x.para, monto: x.monto, cuenta: c.vista, eleccionAlPagar: x.eleccionAlPagar, eleccionAhora: c.eleccion }),
+      esPrueba: c.esPrueba,
     };
   }
   const c = await cuentaParaCobroDeLaOrden(d.id);
@@ -108,8 +114,14 @@ async function cuentaCaja(d: Destino): Promise<CuentaCaja> {
     eleccion: "",
     monto: (para) => montoDeOpcion(opcionesDePagoOrden(c.cuenta), para),
     decidir: (x) => decidirAplicacionOrden({ monto: x.monto, cuenta: c.cuenta }),
+    esPrueba: c.esPrueba,
   };
 }
+
+/** DeUna: la configuración del ambiente de ESTE intento (QA o producción; nunca se mezclan). */
+const configDeUnaDe = (i: Pick<IntentoRegistro, "ambiente">) => configPasarela("DeUna", i.ambiente === "Prueba" ? "Prueba" : "Producción");
+/** Títulos de avisos de pruebas: que nadie los confunda con dinero real. */
+const conPrueba = (i: Pick<IntentoRegistro, "ambiente">, t: string) => (i.ambiente === "Prueba" ? `PRUEBA · ${t}` : t);
 
 const intentosDe = (d: Destino) => (d.origen === "Pedido" ? intentosDelPedido(d.id) : intentosDeLaOrden(d.id));
 
@@ -163,14 +175,15 @@ const NO_DISPONIBLE: Record<Pasarela, string> = {
  * como opción, con el monto que falta). Ej.: Repuestos $105 → $50 con tarjeta
  * → "Completa $55 con DeUna".
  */
-async function abrirPago(d: Destino, para: ParaPago, pasarela: Pasarela, parte?: number): Promise<ResultadoAbrir> {
-  const config = configPasarela(pasarela);
+async function abrirPago(d: Destino, para: ParaPago, pasarela: Pasarela, parte?: number, mostrador = false): Promise<ResultadoAbrir> {
   // Antes de cobrar otra vez: ¿ya se pagó un QR de DeUna anterior? (fuera del candado: reanudar lo toma).
   await reanudar(d).catch((e) => console.error("[pagos en línea] revisar antes de abrir:", e));
 
   return withLock(llave(d), async (): Promise<ResultadoAbrir> => {
     const cuenta = await cuentaCaja(d);
-    if (!pasarelaDisponible(config, cuenta.codigo)) return { ok: false, status: 409, error: NO_DISPONIBLE[pasarela] };
+    // D2: DeUna de una cuenta «Es prueba» usa SOLO QA; una cuenta real, SOLO producción.
+    const config = configPasarela(pasarela, ambienteDeUnaPara(cuenta.esPrueba));
+    if (!pasarelaDisponible(config, cuenta.codigo, cuenta.esPrueba)) return { ok: false, status: 409, error: NO_DISPONIBLE[pasarela] };
     const total = cuenta.monto(para);
     if (!total.ok) return { ok: false, status: 409, error: total.error };
     const m = parte == null ? total : parteValida(parte, total.monto);
@@ -215,7 +228,9 @@ async function abrirPago(d: Destino, para: ParaPago, pasarela: Pasarela, parte?:
     if (pasarela === "DeUna") {
       // Un cobro DINÁMICO por intento: vale una sola vez y vence a los 15 min.
       try {
-        const cobro = await solicitarCobroDeUna(config, { codigo: intento.codigo, monto: intento.monto, detalle: cuenta.referencia });
+        const cobro = await solicitarCobroDeUna(config, {
+          codigo: intento.codigo, monto: intento.monto, detalle: cuenta.referencia, caja: mostrador ? config.cajaMostrador : config.caja,
+        });
         intento = await actualizarIntento(intento.id, { pago, idTransaccion: cobro.transactionId });
         const venceEn = new Date(Date.parse(intento.creado || new Date().toISOString()) + MINUTOS_VIGENCIA_DEUNA * 60_000).toISOString();
         return { ok: true, codigo: intento.codigo, monto: intento.monto, deuna: { deeplink: cobro.deeplink, qr: cobro.qr, venceEn } };
@@ -237,7 +252,7 @@ async function abrirPago(d: Destino, para: ParaPago, pasarela: Pasarela, parte?:
  * que el enlace del cliente (el monto lo calcula el servidor).
  */
 export async function abrirPagoMostrador(d: Destino, para: ParaPago, pasarela: Pasarela): Promise<ResultadoAbrir> {
-  return abrirPago(d, para, pasarela);
+  return abrirPago(d, para, pasarela, undefined, true);
 }
 
 /** La pantalla del mostrador pregunta si ya pagó: se revisan los cobros abiertos. */
@@ -355,7 +370,7 @@ async function procesarIntento(d: Destino, codigo: string, idPayPhone: string): 
 
 /** DeUna: preguntar cómo quedó el cobro (sin candado propio: lo llama procesarIntento). */
 async function procesarDeUna(intento: IntentoRegistro): Promise<void> {
-  const config = configPasarela("DeUna");
+  const config = configDeUnaDe(intento);
   if (!puedeConsultar(config) || !intento.idTransaccion) return;
   let info: InfoDeUna;
   try {
@@ -364,7 +379,7 @@ async function procesarDeUna(intento: IntentoRegistro): Promise<void> {
     console.error("[pagos en línea] DeUna sin respuesta:", intento.codigo, e instanceof Error ? e.message : "error");
     return; // se reintenta en la próxima consulta o con el aviso de DeUna
   }
-  const ev = evaluarInfo(intento, info, config.caja);
+  const ev = evaluarInfo(intento, info, config.cajas);
   if (ev.tipo === "pendiente" || ev.tipo === "no_encontrado") {
     if (intento.estado === "Abierto" && minutosDesde(intento.creado) > MINUTOS_VIGENCIA_DEUNA + MINUTOS_GRACIA_DEUNA) {
       await actualizarIntento(intento.id, { estado: "Vencido", detalle: "El QR de DeUna venció sin pago." });
@@ -400,8 +415,8 @@ async function aplicarConAviso(intento: IntentoRegistro): Promise<void> {
     console.error("[pagos en línea] aplicar:", intento.codigo, e);
     const d = destinoDe(intento);
     if (d) {
-      await avisar(d, `Pago en línea sin registrar · ${intento.codigo}`,
-        `${intento.pasarela} aprobó ${usd(intento.monto)} (${intento.codigo}) pero no se pudo registrar el abono. Se reintenta cuando el cliente abra su enlace; si no, avisa a Claude.`, "Alta")
+      await avisar(d, conPrueba(intento, `Pago en línea sin registrar · ${intento.codigo}`),
+        `${intento.pasarela} aprobó ${usd(intento.monto)} (${intento.codigo}) pero no se pudo registrar el abono. Se reintenta solo (revisión automática); si no, avisa a Claude.`, "Alta")
         .catch(() => undefined);
     }
     throw e;
@@ -424,11 +439,21 @@ async function aplicarIntento(intento: IntentoRegistro): Promise<void> {
     return;
   }
 
+  // D2 (aislamiento): un pago DeUna QA solo se aplica a una cuenta «Es prueba»,
+  // y un pago DeUna real nunca a una cuenta de prueba. Si no coinciden, no se
+  // registra nada: lo revisa el personal.
+  const cuentaAhora = await cuentaCaja(d);
+  if (pasarela === "DeUna" && (intento.ambiente === "Prueba") !== cuentaAhora.esPrueba) {
+    await marcarRevision(intento, intento.ambiente === "Prueba"
+      ? "Un pago de pruebas de DeUna (QA) llegó a una cuenta real: no se registró nada."
+      : "Un pago real de DeUna llegó a una cuenta marcada «Es prueba»: no se registró nada.");
+    return;
+  }
+
   // La decisión se guarda ANTES del abono: si hay que reintentar, se usa la misma.
   let decision = leerDecision(intento.detalle);
   if (!decision) {
-    const cuenta = await cuentaCaja(d);
-    decision = cuenta.decidir({ para: intento.para, monto: intento.monto, eleccionAlPagar: intento.eleccion });
+    decision = cuentaAhora.decidir({ para: intento.para, monto: intento.monto, eleccionAlPagar: intento.eleccion });
     intento = await actualizarIntento(intento.id, { detalle: textoDecision(decision) });
   }
 
@@ -438,7 +463,7 @@ async function aplicarIntento(intento: IntentoRegistro): Promise<void> {
   // en el mostrador se reconoce y no se duplica.
   const numero = pasarela === "DeUna" ? (intento.autorizacion || intento.idTransaccion) : intento.idTransaccion;
   const observacion = [
-    prueba ? `PRUEBA ${pasarela} (no es dinero real)` : `Pago en línea ${pasarela}`,
+    prueba ? `PRUEBA ${pasarela}${pasarela === "DeUna" ? " QA" : ""} (no es dinero real)` : `Pago en línea ${pasarela}`,
     intento.codigo,
     pasarela === "DeUna" ? intento.pagador : intento.tarjeta || intento.medio,
     pasarela === "DeUna" ? (intento.autorizacion ? `transf. ${intento.autorizacion}` : "") : (intento.autorizacion ? `aut. ${intento.autorizacion}` : ""),
@@ -448,24 +473,39 @@ async function aplicarIntento(intento: IntentoRegistro): Promise<void> {
     : `${pasarela} (${d.origen === "Pedido" ? "enlace del cliente" : "enlace del presupuesto"})`;
   const fecha = hoyEcuador();
 
-  // El dinero es real: el abono se registra siempre (una sola vez).
-  let abonoId = intento.abonoId ?? (await abonosDeTransaccion(numero, pasarela))[0]?.id ?? null;
-  if (!abonoId) {
+  const crear = async (): Promise<string> => {
     if (d.origen === "Pedido") {
       const creado = await crearAbono({
         monto: intento.monto, metodoPago: pasarela, fechaAbono: fecha, numeroTransaccion: numero,
         observacion, registradoPor, operacionId: d.id, ordenId: null,
       });
-      abonoId = creado.id;
-    } else {
-      // El mismo registro que "Registrar pago" de la orden (enlaza también su pedido viejo, si lo tiene).
-      const creado = await createAbonoPorOrden({
-        ordenRecordId: d.id, fecha, monto: intento.monto, metodoPago: pasarela,
-        numeroTransaccion: numero, observacion, registradoPor,
-      });
-      abonoId = creado.abono.id;
+      return creado.id;
     }
+    // El mismo registro que "Registrar pago" de la orden (enlaza también su pedido viejo, si lo tiene).
+    const creado = await createAbonoPorOrden({
+      ordenRecordId: d.id, fecha, monto: intento.monto, metodoPago: pasarela,
+      numeroTransaccion: numero, observacion, registradoPor,
+    });
+    return creado.abono.id;
+  };
+
+  // El dinero es real: el abono se registra siempre (una sola vez).
+  let abonoId = intento.abonoId ?? null;
+  if (!abonoId && pasarela === "DeUna") {
+    // D2 (Codex, punto 3): DeUna puede llegar por tres caminos a la vez (aviso,
+    // consulta del cliente, revisión automática) y en computadoras distintas.
+    // Solo quien toma la "reserva" del pago en Vercel Blob registra el abono.
+    const r = await registrarUnaVez({
+      clave: claveReserva(pasarela, intento.ambiente, numero, huellaNumero),
+      codigo: intento.codigo,
+      almacen: almacenBlob,
+      buscarAbono: async () => (await abonosDeTransaccion(numero, pasarela))[0]?.id ?? null,
+      crearAbono: crear,
+    });
+    if (r.tipo === "ocupado") return; // otro lo está registrando; queda "Aprobado" y se revisa luego
+    abonoId = r.abonoId;
   }
+  if (!abonoId) abonoId = (await abonosDeTransaccion(numero, pasarela))[0]?.id ?? (await crear());
   // Verificación posterior entre instancias: si quedaron dos abonos del mismo
   // pago, gana el de menor ID Abono y el otro se anula (nunca se borra).
   const abonos = await abonosDeTransaccion(numero, pasarela);
@@ -491,10 +531,10 @@ async function aplicarIntento(intento: IntentoRegistro): Promise<void> {
 
   await actualizarIntento(intento.id, { estado: decision.estado, detalle: textoDecision(decision) + aviso });
 
-  const cuenta = await cuentaCaja(d);
+  const cuenta = cuentaAhora;
   const quien = `${cuenta.clienteNombre || "El cliente"}`;
   if (decision.estado === "En revisión") {
-    await avisar(d, `Pago en línea por revisar · ${cuenta.codigo}`,
+    await avisar(d, conPrueba(intento, `Pago en línea por revisar · ${cuenta.codigo}`),
       `${quien} pagó ${usd(intento.monto)} con ${pasarela} (${intento.codigo}). ${decision.motivo} El abono quedó registrado; decide qué hacer.${aviso}`, "Alta")
       .catch((e) => console.warn("[pagos en línea] aviso:", e));
     return;
@@ -509,7 +549,7 @@ async function aplicarIntento(intento: IntentoRegistro): Promise<void> {
     });
   }
   if (!confirmado) {
-    await avisar(d, `Pago en línea recibido · ${cuenta.codigo}`,
+    await avisar(d, conPrueba(intento, `Pago en línea recibido · ${cuenta.codigo}`),
       `${quien} pagó ${usd(intento.monto)} con ${pasarela} (${intento.codigo}).${aviso}`, "Normal")
       .catch((e) => console.warn("[pagos en línea] aviso:", e));
   }
@@ -519,7 +559,7 @@ async function marcarRevision(intento: IntentoRegistro, motivo: string): Promise
   await actualizarIntento(intento.id, { estado: "En revisión", detalle: textoDecision({ estado: "En revisión", motivo }) });
   const d = destinoDe(intento);
   if (d) {
-    await avisar(d, `Pago en línea por revisar · ${intento.codigo}`,
+    await avisar(d, conPrueba(intento, `Pago en línea por revisar · ${intento.codigo}`),
       `${motivo} No se registró ningún abono automáticamente.`, "Alta").catch((e) => console.warn("[pagos en línea] aviso:", e));
   }
 }
@@ -548,6 +588,38 @@ async function anularAbonoDuplicado(abonoId: string, pasarela: Pasarela): Promis
   });
 }
 
+// ─── 3b. Revisión automática (conciliación, etapa D2) ───────────────────────
+
+export type ResultadoConciliacion = { revisados: number; aplicados: number; pendientes: number; errores: number; sinTiempo: boolean };
+
+/**
+ * Pregunta a la pasarela por los cobros que quedaron a medias (reglas en
+ * ./conciliacion-reglas.ts) y aplica los pagados con el MISMO motor (reserva
+ * en Blob → un solo abono). Cada intento con su ambiente: QA o producción.
+ * Se corta a los `segundos` para no pasar el límite de la función.
+ */
+export async function conciliarPagos(segundos = 50): Promise<ResultadoConciliacion> {
+  const inicio = Date.now();
+  const lista = ordenarParaConciliar((await intentosPorConciliar()).filter((i) => porConciliar(i)));
+  const r: ResultadoConciliacion = { revisados: 0, aplicados: 0, pendientes: 0, errores: 0, sinTiempo: false };
+  for (const i of lista) {
+    if (Date.now() - inicio > segundos * 1000) { r.sinTiempo = true; break; }
+    const d = destinoDe(i);
+    if (!d) continue;
+    r.revisados++;
+    try {
+      await procesarIntento(d, i.codigo, "");
+      const despues = await intentoPorCodigo(i.codigo);
+      if (despues?.estado === "Aplicado" || despues?.estado === "En revisión") r.aplicados++;
+      else r.pendientes++;
+    } catch (e) {
+      r.errores++;
+      console.error("[pagos en línea] conciliar:", i.codigo, e instanceof Error ? e.message : "error");
+    }
+  }
+  return r;
+}
+
 // ─── 4. El aviso de DeUna (webhook) ─────────────────────────────────────────
 
 export type ResultadoAviso = "procesado" | "por_asignar" | "ya_registrado" | "ignorado";
@@ -557,8 +629,10 @@ export type ResultadoAviso = "procesado" | "por_asignar" | "ya_registrado" | "ig
  * Lanza si DeUna no responde o el pago aún figura pendiente (DeUna reintenta
  * 3 veces cada 30 s; si no, la consulta del cliente o la bandeja lo recogen).
  */
-export async function procesarAvisoDeUna(aviso: AvisoDeUna): Promise<ResultadoAviso> {
-  const config = configPasarela("DeUna");
+export async function procesarAvisoDeUna(aviso: AvisoDeUna, ambiente: "Producción" | "Prueba"): Promise<ResultadoAviso> {
+  // D2: cada receptor (producción /api/webhooks/deuna, QA /api/webhooks/deuna-qa)
+  // consulta SOLO a su ambiente, con sus credenciales.
+  const config = configPasarela("DeUna", ambiente);
   if (!puedeConsultar(config)) throw new Error("DeUna sin credenciales para consultar.");
   const info = await consultarPagoDeUna(config, aviso.idTransaccion, "transaccion");
   if (info.status === "PENDING") throw new Error("DeUna aún figura pendiente.");
@@ -569,12 +643,14 @@ export async function procesarAvisoDeUna(aviso: AvisoDeUna): Promise<ResultadoAv
   let intento = CODIGO_PAGO_REGEX.test(ref) ? await intentoPorCodigo(ref) : null;
   if (!intento) intento = (await intentosPorTransaccion(info.transactionId || aviso.idTransaccion))[0] ?? null;
   if (intento && intento.pasarela === "DeUna") {
+    // Un aviso de un ambiente nunca toca un cobro del otro.
+    if (intento.ambiente !== config.ambiente) return "ignorado";
     const d = destinoDe(intento);
     if (!d) return "ya_registrado"; // ya está en la bandeja
     await procesarIntento(d, intento.codigo, "");
     return "procesado";
   }
-  return registrarSinReferencia(info, config.caja);
+  return registrarSinReferencia(info, config);
 }
 
 /**
@@ -583,13 +659,15 @@ export async function procesarAvisoDeUna(aviso: AvisoDeUna): Promise<ResultadoAv
  * Si el empleado ya lo registró a mano (mismo N.º de transferencia), queda
  * enlazado a ese abono y no aparece por asignar.
  */
-async function registrarSinReferencia(info: InfoDeUna, caja: string): Promise<ResultadoAviso> {
+async function registrarSinReferencia(info: InfoDeUna, config: ConfigPasarela): Promise<ResultadoAviso> {
+  const ambiente = config.ambiente;
   return withLock(`pago-recibido:${info.transactionId}`, async (): Promise<ResultadoAviso> => {
     if ((await intentosPorTransaccion(info.transactionId)).length) return "ya_registrado";
     const monto = info.amount ?? 0;
-    const problemas = problemasDeUna(info, caja);
+    const problemas = problemasDeUna(info, config.cajas);
     if (!(monto > 0)) problemas.push("monto vacío");
-    const manual = (await abonosDeTransaccion(info.transferNumber, "DeUna"))[0] ?? null;
+    // En QA no se busca abono a mano (nadie registra a mano un pago de pruebas).
+    const manual = ambiente === "Prueba" ? null : (await abonosDeTransaccion(info.transferNumber, "DeUna"))[0] ?? null;
     const dIva = desgloseIva(monto);
     const { tarifa, neto } = tarifaYNeto(monto, "DeUna", "DeUna");
     const pagador = nombrePropio(info.ordererName);
@@ -598,19 +676,19 @@ async function registrarSinReferencia(info: InfoDeUna, caja: string): Promise<Re
       ? textoDecision({ estado: "En revisión", motivo: `Pago DeUna sin referencia que no coincide: ${problemas.join("; ")}.` })
       : manual ? "Llegó sin referencia y ya estaba registrado a mano (mismo N.º de transferencia)." : "Llegó sin referencia (QR impreso u otro cobro de DeUna).";
     let intento = await crearIntento({
-      origen: "Sin referencia", pasarela: "DeUna", ambiente: "Producción", para: "Lo que falta",
+      origen: "Sin referencia", pasarela: "DeUna", ambiente, para: "Lo que falta",
       monto, base: dIva.baseC / 100, iva: dIva.ivaC / 100, eleccion: "",
       estado, idTransaccion: info.transactionId, autorizacion: info.transferNumber, medio: "DeUna",
       tarifa, neto, pagador: pagador || undefined, identificacion: info.ordererIdentification || undefined,
       confirmadoEn: new Date().toISOString(), detalle,
     });
     intento = await actualizarIntento(intento.id, {
-      pago: resumenPago({ codigo: intento.codigo, cuenta: "Sin referencia", monto, pasarela: "DeUna", ambiente: "Producción" }),
+      pago: resumenPago({ codigo: intento.codigo, cuenta: "Sin referencia", monto, pasarela: "DeUna", ambiente }),
       abonoId: manual?.id,
     });
     if (estado === "Aplicado") return "ya_registrado";
     await avisarPersonal(
-      estado === "Por asignar" ? `Pago DeUna por asignar · ${usd(monto)}` : `Pago DeUna por revisar · ${usd(monto)}`,
+      conPrueba({ ambiente }, estado === "Por asignar" ? `Pago DeUna por asignar · ${usd(monto)}` : `Pago DeUna por revisar · ${usd(monto)}`),
       `${pagador || "Un cliente"} pagó ${usd(monto)} con DeUna sin referencia (${intento.codigo}). Asígnalo en Pagos recibidos.`,
       estado === "Por asignar" ? "Normal" : "Alta",
     ).catch((e) => console.warn("[pagos en línea] aviso bandeja:", e));
@@ -637,6 +715,12 @@ export async function asignarPagoRecibido(input: { codigo: string; destino: Dest
     const intento = await intentoPorCodigo(input.codigo);
     if (!intento || intento.estado !== "Por asignar") return { ok: false, status: 409, error: "Ese pago ya no está por asignar (alguien lo asignó o lo descartó)." };
     const cuenta = await cuentaCaja(d);
+    // D2: un pago de pruebas (QA) solo va a una cuenta «Es prueba»; uno real, nunca.
+    if ((intento.ambiente === "Prueba") !== cuenta.esPrueba) {
+      return { ok: false, status: 409, error: intento.ambiente === "Prueba"
+        ? "Es un pago de pruebas (QA): solo se asigna a una orden o pedido marcado «Es prueba»."
+        : `${cuenta.codigo} está marcado «Es prueba»: un pago real no se asigna ahí.` };
+    }
     const falta = cuenta.monto("Lo que falta");
     // En un pedido "por pagar" la opción es "Todo"/"Confirmar": se usa la más alta.
     const maximo = falta.ok ? falta.monto : Math.max(0, ...(["Todo", "Confirmar"] as ParaPago[]).map((p) => { const m = cuenta.monto(p); return m.ok ? m.monto : 0; }));

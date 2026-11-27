@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   const codigo = u.searchParams.get("codigo") ?? "";
   try {
     const pago = /^PL-\d{6,}$/.test(codigo) ? await intentoPorCodigo(codigo) : null;
-    const data = await buscarCuentas(q, pago ? { monto: pago.monto, identificacion: pago.identificacion } : undefined);
+    const data = await buscarCuentas(q, pago ? { monto: pago.monto, identificacion: pago.identificacion, ambiente: pago.ambiente } : undefined);
     return NextResponse.json({ success: true, data }, { headers: NO_CACHE });
   } catch (e) {
     console.error("[pagos recibidos buscar]", e);

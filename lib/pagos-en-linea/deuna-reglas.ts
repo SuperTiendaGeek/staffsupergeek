@@ -122,23 +122,25 @@ export type ResultadoDeUna =
 export function evaluarInfo(
   intento: { codigo: string; monto: number; idTransaccion: string },
   info: InfoDeUna,
-  cajaEsperada: string,
+  cajas: readonly string[],
 ): ResultadoDeUna {
   if (info.status === "PENDING") return { tipo: "pendiente" };
   if (info.status === "NOT_FOUND") return { tipo: "no_encontrado" };
-  if (info.status === "REVERSED" || info.status === "REVERSED_FAILED") {
-    return { tipo: "devuelto", detalle: `DeUna marca este pago como ${info.status === "REVERSED" ? "devuelto al cliente" : "devolución fallida"}.` };
-  }
+  if (info.status === "REVERSED") return { tipo: "devuelto", detalle: "DeUna marca este pago como devuelto al cliente." };
+  // Codex (D2): una devolución FALLIDA no equivale a una devolución hecha:
+  // el dinero puede estar en la cuenta. La revisa el personal (y se aclara con DeUna).
+  if (info.status === "REVERSED_FAILED") return { tipo: "sospechoso", detalle: "DeUna informa una devolución fallida (REVERSED_FAILED): revisar con DeUna." };
   if (info.status !== "APPROVED") return { tipo: "sospechoso", detalle: `Estado desconocido de DeUna: ${info.status || "—"}.` };
-  const problemas = problemasDeUna(info, cajaEsperada);
+  const problemas = problemasDeUna(info, cajas);
   if (info.amount == null || centavos(info.amount) !== centavos(intento.monto)) {
     problemas.push(`monto ${info.amount == null ? "—" : usd(info.amount)} ≠ ${usd(intento.monto)}`);
   }
-  if (info.internalTransactionReference && info.internalTransactionReference !== intento.codigo) {
-    problemas.push(`referencia ${info.internalTransactionReference} ≠ ${intento.codigo}`);
+  // Un cobro que generó Staff SIEMPRE lleva su referencia PL: vacía o distinta → revisión.
+  if (info.internalTransactionReference !== intento.codigo) {
+    problemas.push(`referencia ${info.internalTransactionReference || "vacía"} ≠ ${intento.codigo}`);
   }
-  if (intento.idTransaccion && info.transactionId && info.transactionId !== intento.idTransaccion) {
-    problemas.push("otro ID de transacción");
+  if (!intento.idTransaccion || info.transactionId !== intento.idTransaccion) {
+    problemas.push(info.transactionId ? "otro ID de transacción" : "sin ID de transacción");
   }
   if (problemas.length) return { tipo: "sospechoso", detalle: `Aprobado por DeUna pero no coincide: ${problemas.join("; ")}.` };
   return {
@@ -150,11 +152,16 @@ export function evaluarInfo(
   };
 }
 
-/** Lo que debe cumplir CUALQUIER pago DeUna (también los que llegan sin referencia). */
-export function problemasDeUna(info: InfoDeUna, cajaEsperada: string): string[] {
+/**
+ * Lo que debe cumplir CUALQUIER pago DeUna (también los que llegan sin
+ * referencia). Codex (D2): un dato vacío NO se da por bueno — moneda vacía,
+ * caja vacía o desconocida, o sin configurar cajas → revisión.
+ */
+export function problemasDeUna(info: InfoDeUna, cajas: readonly string[]): string[] {
   const p: string[] = [];
-  if (info.currency && info.currency !== "USD") p.push(`moneda ${info.currency}`);
-  if (cajaEsperada && info.posId && info.posId !== cajaEsperada) p.push(`caja ${info.posId} ≠ ${cajaEsperada}`);
+  if (info.currency !== "USD") p.push(`moneda ${info.currency || "vacía"}`);
+  if (!cajas.length) p.push("sin cajas configuradas");
+  else if (!cajas.includes(info.posId)) p.push(`caja ${info.posId || "vacía"} no es nuestra (${cajas.join(", ")})`);
   if (!info.transactionId) p.push("sin ID de transacción");
   if (!info.transferNumber) p.push("sin número de transferencia");
   return p;
